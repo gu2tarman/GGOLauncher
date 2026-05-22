@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Tauri build
+        run: npm run tauri build
+
+      - name: Compute SHA256
+        id: hash
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/ggo-launcher.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item $exe).Length
+          "sha256=$hash"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "size=$size"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "ggo-launcher.exe: size=$size bytes, sha256=$hash"
+
+      - name: Rename single-exe for release artifact
+        shell: pwsh
+        run: |
+          Copy-Item -Path "src-tauri/target/release/ggo-launcher.exe" `
+                    -Destination "src-tauri/target/release/GGOLauncher.exe"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "GGO Launcher ${{ github.ref_name }}"
+          body: |
+            ## GGO Launcher ${{ github.ref_name }}
+
+            ### 다운로드
+            - **`GGOLauncher.exe`** — 단일 실행 파일 (포터블, 설치 불필요)
+            - **`GGOLauncher_${{ github.ref_name }}_x64-setup.exe`** — NSIS 인스톨러
+
+            ### 자동 업데이트
+            기존 런처는 다음 시작 시 이 릴리스를 자동 감지하고 업데이트합니다 (배포자가 ggoce-deploy/launcher/manifest.json 갱신 후).
+
+            **manifest 갱신용 값**:
+            ```
+            version: ${{ github.ref_name }}  (앞의 v 제거)
+            size:    ${{ steps.hash.outputs.size }}
+            sha256:  ${{ steps.hash.outputs.sha256 }}
+            url:     이 릴리스의 GGOLauncher.exe 다운로드 링크
+            ```
+          files: |
+            src-tauri/target/release/GGOLauncher.exe
+            src-tauri/target/release/bundle/nsis/*.exe
+          fail_on_unmatched_files: true
