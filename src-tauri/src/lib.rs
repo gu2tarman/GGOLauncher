@@ -4,6 +4,7 @@ mod notice;
 mod paths;
 mod plugins;
 mod profile;
+mod self_updater;
 mod settings;
 mod updater;
 
@@ -163,6 +164,35 @@ async fn cuo_apply_update(
     .await
 }
 
+// ── 런처 종료 ─────────────────────────────────────────────
+#[tauri::command]
+fn quit_launcher(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+// ── 런처 자기 업데이트 ───────────────────────────────────
+#[tauri::command]
+async fn launcher_check_update() -> Result<self_updater::SelfUpdateCheck, String> {
+    self_updater::check().await
+}
+
+/// 다운로드 + updater.bat 실행. 호출 직후 런처 자기 종료해야 batch가 이어받음.
+#[tauri::command]
+async fn launcher_apply_update(
+    manifest: self_updater::LauncherManifest,
+    window: tauri::Window,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let win = window.clone();
+    self_updater::download_and_apply(&manifest, move |bytes_done, total| {
+        let _ = win.emit(
+            "launcher_update_progress",
+            serde_json::json!({ "bytesDone": bytes_done, "totalBytes": total }),
+        );
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -185,6 +215,9 @@ pub fn run() {
             fetch_notice,
             cuo_check_update,
             cuo_apply_update,
+            launcher_check_update,
+            launcher_apply_update,
+            quit_launcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -107,3 +107,20 @@ export interface UpdateCheck {
   total_bytes: number;
   manifest: UpdateManifest;
 }
+
+// ── Launcher Self Update ──────────────────────────────
+export interface LauncherManifest {
+  version: string;
+  released: string;
+  notes: string;
+  url: string;
+  size: number;
+  sha256: string;
+}
+
+export interface SelfUpdateCheck {
+  current_version: string;
+  remote_version: string;
+  update_available: boolean;
+  manifest: LauncherManifest | null;
+}

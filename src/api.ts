@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { NoticeBoard, PathInfo, Settings, UpdateCheck } from "./types";
+import type {
+  LauncherManifest,
+  NoticeBoard,
+  PathInfo,
+  SelfUpdateCheck,
+  Settings,
+  UpdateCheck,
+} from "./types";
 
 export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
@@ -34,4 +41,9 @@ export const api = {
   cuoCheckUpdate: (cuoPath: string) => invoke<UpdateCheck>("cuo_check_update", { cuoPath }),
   cuoApplyUpdate: (cuoPath: string, check: UpdateCheck) =>
     invoke<void>("cuo_apply_update", { cuoPath, check }),
+
+  launcherCheckUpdate: () => invoke<SelfUpdateCheck>("launcher_check_update"),
+  launcherApplyUpdate: (manifest: LauncherManifest) =>
+    invoke<void>("launcher_apply_update", { manifest }),
+  quitLauncher: () => invoke<void>("quit_launcher"),
 };

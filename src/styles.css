@@ -217,6 +217,40 @@ button {
   font-size: 18px;
 }
 
+/* 런처 자기 업데이트 배너 */
+.self-update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
+  color: #1a0e00;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+}
+
+.self-update-banner.self-update-downloading,
+.self-update-banner.self-update-applying {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-teal);
+  box-shadow: none;
+}
+
+.self-update-banner.self-update-error {
+  background: var(--bg-panel);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  box-shadow: none;
+}
+
+.self-update-msg {
+  flex: 1;
+}
+
 /* 활성 계정 pill (프로필명 옆에) */
 .profile-account-pill {
   margin-left: 10px;

@@ -5,7 +5,13 @@ import { NoticeBoard } from "./NoticeBoard";
 import { ManageProfilesModal } from "./ManageProfilesModal";
 import { EditProfileModal } from "./EditProfileModal";
 import { PluginPanel } from "./PluginPanel";
-import type { PluginEntry, Profile, Settings, UpdateCheck } from "./types";
+import type {
+  LauncherManifest,
+  PluginEntry,
+  Profile,
+  Settings,
+  UpdateCheck,
+} from "./types";
 
 type LinkButtonProps = { label: string; url?: string };
 
@@ -47,6 +53,15 @@ function App() {
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "checking" });
   // 사용 가능한 manifest 보관 (다운로드 시 재사용 — 중복 fetch 회피)
   const pendingCheck = useRef<UpdateCheck | null>(null);
+
+  // 런처 자기 업데이트 state
+  type SelfUpdate =
+    | { kind: "idle" }
+    | { kind: "available"; manifest: LauncherManifest }
+    | { kind: "downloading"; percent: number }
+    | { kind: "applying" }
+    | { kind: "error"; message: string };
+  const [selfUpdate, setSelfUpdate] = useState<SelfUpdate>({ kind: "idle" });
   const [manageOpen, setManageOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [ggoceVersion, setGgoceVersion] = useState<string | null>(null);
@@ -88,7 +103,7 @@ function App() {
     };
   }, [settings?.active_profile_id, settings?.profiles]);
 
-  // 업데이트 다운로드 진행률 이벤트 구독
+  // CUO 업데이트 다운로드 진행률
   useEffect(() => {
     const unlistenPromise = listen<{ bytesDone: number; totalBytes: number }>(
       "cuo_update_progress",
@@ -102,6 +117,53 @@ function App() {
       unlistenPromise.then((u) => u());
     };
   }, []);
+
+  // 런처 자기 업데이트 체크 (시작 시 1회)
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .launcherCheckUpdate()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.update_available && res.manifest) {
+          setSelfUpdate({ kind: "available", manifest: res.manifest });
+        }
+      })
+      .catch((e) => console.error("[launcher check]", e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 런처 자기 업데이트 진행률
+  useEffect(() => {
+    const unlistenPromise = listen<{ bytesDone: number; totalBytes: number }>(
+      "launcher_update_progress",
+      (e) => {
+        const { bytesDone, totalBytes } = e.payload;
+        const percent = totalBytes > 0 ? Math.floor((bytesDone / totalBytes) * 100) : 0;
+        setSelfUpdate({ kind: "downloading", percent });
+      }
+    );
+    return () => {
+      unlistenPromise.then((u) => u());
+    };
+  }, []);
+
+  const onSelfUpdateClick = async () => {
+    const manifest =
+      selfUpdate.kind === "available" ? selfUpdate.manifest : null;
+    if (!manifest) return;
+    setSelfUpdate({ kind: "downloading", percent: 0 });
+    try {
+      await api.launcherApplyUpdate(manifest);
+      setSelfUpdate({ kind: "applying" });
+      // updater.bat이 swap+restart 담당 — 런처 자기 종료
+      setTimeout(() => api.quitLauncher().catch(() => {}), 300);
+    } catch (e) {
+      setSelfUpdate({ kind: "error", message: String(e) });
+    }
+  };
 
   /** settings를 갱신하고 디스크에도 저장. */
   const persistSettings = (next: Settings) => {
@@ -283,6 +345,43 @@ function App() {
 
       {/* ── Right ────────────────────────── */}
       <main className="right-column">
+        {selfUpdate.kind !== "idle" && (
+          <div className={`self-update-banner self-update-${selfUpdate.kind}`}>
+            {selfUpdate.kind === "available" && (
+              <>
+                <span className="self-update-msg">
+                  🆙 새 런처 버전 <b>v{selfUpdate.manifest.version}</b> 사용 가능
+                </span>
+                <button className="btn-primary btn-primary-sm" onClick={onSelfUpdateClick}>
+                  업데이트 및 재시작
+                </button>
+              </>
+            )}
+            {selfUpdate.kind === "downloading" && (
+              <span className="self-update-msg">
+                런처 업데이트 다운로드 중 {selfUpdate.percent}%...
+              </span>
+            )}
+            {selfUpdate.kind === "applying" && (
+              <span className="self-update-msg">
+                업데이트 적용 — 런처가 곧 재시작됩니다...
+              </span>
+            )}
+            {selfUpdate.kind === "error" && (
+              <>
+                <span className="self-update-msg">
+                  런처 업데이트 실패: {selfUpdate.message}
+                </span>
+                <button
+                  className="btn-action"
+                  onClick={() => setSelfUpdate({ kind: "idle" })}
+                >
+                  닫기
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div className="top-actions top-actions-3col">
           <button
             className={`btn-play ${!canPlay ? "btn-play-disabled" : ""}`}
