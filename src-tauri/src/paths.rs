@@ -53,19 +53,53 @@ pub fn detect_client_version(uo_path: &str) -> Option<String> {
     read_pe_file_version(&client_exe)
 }
 
-/// CUO 폴더에서 ClassicUO.exe 찾아 파일 버전 감지.
-/// GGO CE는 ClassicUO 포크라 PE 메타데이터에 빌드 버전 박혀있음.
+/// GGO CE 버전 감지. 우선순위:
+///   1) version.txt 사이드 파일 (빌드가 두면 사용)
+///   2) cuo.dll PE FileVersion (GGO CE 본체 빌드가 직접 박는 값)
+///   3) ClassicUO.exe PE FileVersion (upstream 폴백)
 pub fn detect_ggoce_version(cuo_path: &str) -> Option<String> {
     let dir = PathBuf::from(cuo_path);
     if !dir.is_dir() {
         return None;
     }
-    let candidates = ["ClassicUO.exe", "classicuo.exe", "CLASSICUO.EXE"];
-    let exe = candidates
-        .iter()
-        .map(|n| dir.join(n))
-        .find(|p| p.exists())?;
-    read_pe_file_version(&exe)
+
+    // 1순위: version.txt
+    let vtxt = dir.join("version.txt");
+    if vtxt.exists() {
+        if let Ok(s) = std::fs::read_to_string(&vtxt) {
+            let v = s.lines().next().unwrap_or("").trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+
+    // 2순위: cuo.dll PE 버전 (GGO CE가 직접 새기는 곳)
+    for name in ["cuo.dll", "CUO.dll", "CUO.DLL"] {
+        let p = dir.join(name);
+        if p.exists() {
+            if let Some(v) = read_pe_file_version(&p) {
+                if !is_default_version(&v) {
+                    return Some(v);
+                }
+            }
+        }
+    }
+
+    // 3순위: ClassicUO.exe PE 버전 (upstream)
+    for name in ["ClassicUO.exe", "classicuo.exe", "CLASSICUO.EXE"] {
+        let p = dir.join(name);
+        if p.exists() {
+            return read_pe_file_version(&p);
+        }
+    }
+
+    None
+}
+
+/// "0.0.0.0" 같은 의미 없는 기본값 필터.
+fn is_default_version(v: &str) -> bool {
+    matches!(v, "0.0.0.0" | "0.0.0" | "0.0")
 }
 
 #[cfg(target_os = "windows")]

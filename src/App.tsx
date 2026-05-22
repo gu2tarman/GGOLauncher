@@ -208,7 +208,7 @@ function App() {
           <header className="profile-header">
             <span className="profile-title">DESKTOP CLIENT SETTINGS</span>
             <span className="profile-version">
-              GGOCE {ggoceVersion ? `v${ggoceVersion}` : "v—"}
+              ClassicUO GGO CE {ggoceVersion ? `v${ggoceVersion}` : "v—"}
             </span>
           </header>
           <div className="profile-body">
