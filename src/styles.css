@@ -454,6 +454,290 @@ button {
   box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
 }
 
+/* ── Modal ──────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 24, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.12s ease-out;
+}
+
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+.modal-dialog {
+  background: var(--bg-deep);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  animation: slideUp 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0 }
+  to   { transform: translateY(0);    opacity: 1 }
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-panel);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--accent-teal);
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 26px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.modal-close:hover {
+  background: var(--bg-panel-soft);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px 22px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ── Manage Profiles ─────────────────────────────── */
+/* 헤더 우측 액션 그룹 */
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 모달 헤더 안에 들어가는 작은 primary 버튼 */
+.btn-primary-sm {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-teal) 0%, var(--accent-teal-2) 100%);
+  color: #04231e;
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.05s;
+}
+
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-primary:active { transform: translateY(1px); }
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+}
+
+.empty-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.empty-hint { font-size: 13px; color: var(--text-mute); }
+
+.profile-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.profile-group-head {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--text-mute);
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 8px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.profile-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+}
+
+.profile-card:hover:not(.is-active) {
+  background: var(--bg-panel-soft);
+  border-color: var(--accent-teal);
+}
+
+.profile-card:active:not(.is-active) {
+  transform: translateY(1px);
+}
+
+.profile-card.is-active {
+  border-color: var(--accent-teal);
+  background: rgba(45, 212, 191, 0.06);
+  cursor: default;
+}
+
+.profile-card:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 2px;
+}
+
+.profile-card-main { flex: 1; min-width: 0; }
+
+.profile-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.active-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  background: var(--accent-teal);
+  color: #04231e;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.profile-card-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.meta-label {
+  font-weight: 700;
+  color: var(--text-mute);
+  letter-spacing: 0.5px;
+}
+
+.meta-sep { color: var(--text-mute); opacity: 0.5; }
+
+.profile-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-action {
+  background: var(--bg-panel-soft);
+  color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.12s, border-color 0.12s;
+}
+
+.btn-action:hover { filter: brightness(1.15); border-color: var(--accent-teal); }
+
+.btn-action-primary {
+  background: var(--accent-teal);
+  color: #04231e;
+  border-color: var(--accent-teal);
+}
+
+/* 평소엔 빨간 글자만, 테두리는 일반. 호버 시 빨간 테두리 + 옅은 빨간 배경 */
+.btn-action-danger {
+  color: var(--danger);
+  /* border-color는 .btn-action 기본값(--border-soft) 그대로 */
+}
+
+.btn-action-danger:hover {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
+  filter: brightness(1.1);
+}
+
+/* ── Confirm dialog (nested in modal) ─────────────── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.confirm-dialog {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  width: 380px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.confirm-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.confirm-body {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .plugin-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

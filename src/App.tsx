@@ -1,18 +1,16 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { NoticeBoard } from "./NoticeBoard";
+import { ManageProfilesModal } from "./ManageProfilesModal";
 import type { Profile, Settings } from "./types";
 
-type LinkButtonProps = {
-  label: string;
-  url?: string;
-};
+type LinkButtonProps = { label: string; url?: string };
 
 function LinkButton({ label, url }: LinkButtonProps) {
   const disabled = !url;
   const onClick = () => {
     if (!url) return;
-    api.openExternal(url).catch((e) => console.error(e));
+    api.openExternal(url).catch(console.error);
   };
   return (
     <button
@@ -28,8 +26,7 @@ function LinkButton({ label, url }: LinkButtonProps) {
 }
 
 function activeProfile(settings: Settings | null): Profile | null {
-  if (!settings) return null;
-  if (!settings.active_profile_id) return null;
+  if (!settings || !settings.active_profile_id) return null;
   return settings.profiles.find((p) => p.id === settings.active_profile_id) ?? null;
 }
 
@@ -45,6 +42,9 @@ function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "checking" });
+  const [manageOpen, setManageOpen] = useState(false);
+  // Phase 3b에서 EditProfileModal 추가 예정. 지금은 id만 보관.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -52,23 +52,24 @@ function App() {
       .then(setSettings)
       .catch((e) => setLoadError(String(e)));
 
-    // Phase 2c stub: 시작 시 자동 업데이트 체크 시뮬레이션
-    // Phase 8에서 실제 cuo_check_update 호출로 교체
-    const t = setTimeout(() => {
-      setUpdateState({ kind: "uptodate" });
-    }, 1500);
+    const t = setTimeout(() => setUpdateState({ kind: "uptodate" }), 1500);
     return () => clearTimeout(t);
   }, []);
 
+  /** settings를 갱신하고 디스크에도 저장. */
+  const persistSettings = (next: Settings) => {
+    setSettings(next);
+    api.saveSettings(next).catch((e) => console.error("save failed:", e));
+  };
+
   const profile = activeProfile(settings);
   const hasProfile = !!profile;
-  const enabledPluginCount =
-    settings?.plugins.filter((p) => p.enabled).length ?? 0;
+  const enabledPluginCount = settings?.plugins.filter((p) => p.enabled).length ?? 0;
 
+  // ── 업데이트 버튼 ─────────────────────────────────
   const onUpdateClick = () => {
     if (updateState.kind === "available") {
       setUpdateState({ kind: "downloading", percent: 0 });
-      // 가짜 다운로드 진행 (Phase 8에서 실제 진행률 이벤트로 교체)
       let pct = 0;
       const iv = setInterval(() => {
         pct += 12;
@@ -81,8 +82,6 @@ function App() {
       }, 250);
     }
   };
-
-  // 개발 편의: 더블클릭으로 업데이트 상태 강제 토글 (Phase 8 진입 시 제거)
   const onUpdateDoubleClick = () => {
     switch (updateState.kind) {
       case "uptodate":
@@ -93,7 +92,6 @@ function App() {
       case "error":
         setUpdateState({ kind: "uptodate" });
         break;
-      // checking / downloading 중엔 무시
     }
   };
 
@@ -132,7 +130,7 @@ function App() {
 
   return (
     <div className="app">
-      {/* ── Left column ─────────────────────────── */}
+      {/* ── Left ─────────────────────────── */}
       <aside className="left-column">
         <div className="logo-wrap">
           <img src="/margo-logo.png" alt="Margo Launcher" className="logo" />
@@ -158,7 +156,7 @@ function App() {
         </div>
       </aside>
 
-      {/* ── Right column ────────────────────────── */}
+      {/* ── Right ────────────────────────── */}
       <main className="right-column">
         <div className="top-actions">
           <button
@@ -177,7 +175,10 @@ function App() {
           >
             {updateLabel}
             {updateState.kind === "downloading" && (
-              <div className="btn-update-progress" style={{ width: `${updateState.percent}%` }} />
+              <div
+                className="btn-update-progress"
+                style={{ width: `${updateState.percent}%` }}
+              />
             )}
           </button>
         </div>
@@ -200,7 +201,7 @@ function App() {
                   : "—"}
               </div>
             </div>
-            <button className="btn-change">
+            <button className="btn-change" onClick={() => setManageOpen(true)}>
               {profile ? "Change" : "New Profile"}
             </button>
           </div>
@@ -220,7 +221,7 @@ function App() {
             </div>
           </header>
           <div className="plugin-grid">
-            {settings?.plugins.length === 0 || !settings ? (
+            {!settings || settings.plugins.length === 0 ? (
               <div className="plugin-empty">등록된 플러그인이 없습니다</div>
             ) : (
               settings.plugins.map((plugin, i) => (
@@ -244,6 +245,24 @@ function App() {
           <div className="error-toast">설정 로드 실패: {loadError}</div>
         )}
       </main>
+
+      {/* ── Modals ────────────────────────── */}
+      {settings && (
+        <ManageProfilesModal
+          open={manageOpen}
+          settings={settings}
+          onClose={() => setManageOpen(false)}
+          onChange={persistSettings}
+          onEdit={(id) => {
+            setEditingId(id);
+            // Phase 3b에서 EditProfileModal 열기. 지금은 임시 안내.
+            console.log("Edit profile (Phase 3b):", id);
+            alert(`Edit Profile 풀폼은 Phase 3b에서 구현됩니다.\n프로필 ID: ${id}`);
+          }}
+        />
+      )}
+      {/* editingId은 Phase 3b에서 사용. lint 회피용 참조. */}
+      {editingId && null}
     </div>
   );
 }
