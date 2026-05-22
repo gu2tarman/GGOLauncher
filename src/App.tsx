@@ -3,7 +3,8 @@ import { api } from "./api";
 import { NoticeBoard } from "./NoticeBoard";
 import { ManageProfilesModal } from "./ManageProfilesModal";
 import { EditProfileModal } from "./EditProfileModal";
-import type { Profile, Settings } from "./types";
+import { PluginPanel } from "./PluginPanel";
+import type { PluginEntry, Profile, Settings } from "./types";
 
 type LinkButtonProps = { label: string; url?: string };
 
@@ -44,8 +45,8 @@ function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "checking" });
   const [manageOpen, setManageOpen] = useState(false);
-  // Phase 3b에서 EditProfileModal 추가 예정. 지금은 id만 보관.
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [ggoceVersion, setGgoceVersion] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -65,7 +66,26 @@ function App() {
 
   const profile = activeProfile(settings);
   const hasProfile = !!profile;
-  const enabledPluginCount = settings?.plugins.filter((p) => p.enabled).length ?? 0;
+
+  // 활성 프로필의 CUO 경로 기반으로 GGOCE 버전 자동 감지
+  useEffect(() => {
+    setGgoceVersion(null);
+    const cuoPath = profile?.cuo_path;
+    if (!cuoPath) return;
+    let cancelled = false;
+    api
+      .detectGgoceVersion(cuoPath)
+      .then((v) => !cancelled && setGgoceVersion(v))
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.cuo_path]);
+
+  const onPluginsChange = (plugins: PluginEntry[]) => {
+    if (!settings) return;
+    persistSettings({ ...settings, plugins });
+  };
 
   // ── 업데이트 버튼 ─────────────────────────────────
   const onUpdateClick = () => {
@@ -188,7 +208,7 @@ function App() {
           <header className="profile-header">
             <span className="profile-title">DESKTOP CLIENT SETTINGS</span>
             <span className="profile-version">
-              ClassicUO {profile?.client_version ?? "v—"}
+              GGOCE {ggoceVersion ? `v${ggoceVersion}` : "v—"}
             </span>
           </header>
           <div className="profile-body">
@@ -208,34 +228,11 @@ function App() {
           </div>
         </section>
 
-        <section className="plugin-panel">
-          <header className="panel-header panel-header-row">
-            <span>
-              활성 플러그인 <span className="panel-subnote">(공용)</span>
-              {enabledPluginCount > 0 && (
-                <span className="plugin-count">{enabledPluginCount}개 활성</span>
-              )}
-            </span>
-            <div className="panel-actions">
-              <button className="btn-small">+ Add</button>
-              <button className="btn-small">Import ZIP</button>
-            </div>
-          </header>
-          <div className="plugin-grid">
-            {!settings || settings.plugins.length === 0 ? (
-              <div className="plugin-empty">등록된 플러그인이 없습니다</div>
-            ) : (
-              settings.plugins.map((plugin, i) => (
-                <label key={i} className="plugin-item">
-                  <input type="checkbox" checked={plugin.enabled} readOnly />
-                  <span className="plugin-name">
-                    {plugin.path.split(/[/\\]/).pop()}
-                  </span>
-                </label>
-              ))
-            )}
-          </div>
-        </section>
+        <PluginPanel
+          plugins={settings?.plugins ?? []}
+          onChange={onPluginsChange}
+        />
+
 
         <section className="notice-row">
           <NoticeBoard source="margo" title="Margo 공지" />

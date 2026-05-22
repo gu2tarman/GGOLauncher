@@ -24,6 +24,8 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const [showPw, setShowPw] = useState(false);
   const [uoCheck, setUoCheck] = useState<PathInfo | null>(null);
   const [cuoCheck, setCuoCheck] = useState<PathInfo | null>(null);
+  const [autoVersion, setAutoVersion] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
 
   useEffect(() => {
     setDraft(profile);
@@ -52,6 +54,24 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
     }, 300);
     return () => clearTimeout(t);
   }, [draft?.cuo_path]);
+
+  // UO 경로 유효해지면 client.exe 버전 자동 감지
+  useEffect(() => {
+    setAutoVersion(null);
+    if (!uoCheck?.valid_uo || !draft?.uo_path) return;
+    let cancelled = false;
+    setDetecting(true);
+    api
+      .detectClientVersion(draft.uo_path)
+      .then((v) => {
+        if (!cancelled) setAutoVersion(v);
+      })
+      .catch(console.error)
+      .finally(() => !cancelled && setDetecting(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [uoCheck?.valid_uo, draft?.uo_path]);
 
   if (!draft) return null;
 
@@ -138,10 +158,19 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
             validateKind="cuo"
           />
         </Field>
-        <Field label="클라이언트 버전" hint="예: 7.0.95.0 (비워두면 자동)">
+        <Field
+          label="클라이언트 버전"
+          hint={
+            detecting
+              ? "감지 중..."
+              : autoVersion
+              ? `자동 감지된 값입니다 (필요 시만 수정)`
+              : "client.exe에서 자동 감지 (UO 경로 먼저 설정)"
+          }
+        >
           <input
             className="text-input"
-            value={draft.client_version ?? ""}
+            value={draft.client_version ?? autoVersion ?? ""}
             onChange={(e) => update("client_version", e.target.value || null)}
             placeholder="(자동 감지)"
           />

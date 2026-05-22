@@ -22,6 +22,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # 네이티브 폴더/파일 선택 다이얼로그
 rfd = "0.15"
+# ZIP 추출 (ClassicAssist 같은 통째 ZIP 플러그인 import)
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [profile.release]
 panic = "abort"

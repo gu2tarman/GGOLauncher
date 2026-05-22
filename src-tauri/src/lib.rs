@@ -1,5 +1,6 @@
 mod notice;
 mod paths;
+mod plugins;
 mod profile;
 mod settings;
 
@@ -61,6 +62,16 @@ fn inspect_path(path: String) -> PathInfo {
 }
 
 #[tauri::command]
+fn detect_client_version(uo_path: String) -> Option<String> {
+    paths::detect_client_version(&uo_path)
+}
+
+#[tauri::command]
+fn detect_ggoce_version(cuo_path: String) -> Option<String> {
+    paths::detect_ggoce_version(&cuo_path)
+}
+
+#[tauri::command]
 async fn client_select_directory(start_dir: Option<String>) -> Option<String> {
     paths::pick_folder(start_dir, "UO 클라이언트 폴더 선택").await
 }
@@ -68,6 +79,17 @@ async fn client_select_directory(start_dir: Option<String>) -> Option<String> {
 #[tauri::command]
 async fn cuo_select_directory(start_dir: Option<String>) -> Option<String> {
     paths::pick_folder(start_dir, "ClassicUO 폴더 선택").await
+}
+
+// ── 플러그인 ──────────────────────────────────────────────
+#[tauri::command]
+async fn plugin_select_file() -> Option<String> {
+    plugins::pick_plugin_file().await
+}
+
+#[tauri::command]
+async fn import_plugin_from_zip() -> Result<Option<String>, String> {
+    plugins::import_from_zip().await
 }
 
 // ── 공지사항 ──────────────────────────────────────────────
@@ -85,8 +107,12 @@ pub fn run() {
             get_settings,
             save_settings,
             inspect_path,
+            detect_client_version,
+            detect_ggoce_version,
             client_select_directory,
             cuo_select_directory,
+            plugin_select_file,
+            import_plugin_from_zip,
             fetch_notice,
         ])
         .run(tauri::generate_context!())

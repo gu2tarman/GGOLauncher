@@ -392,29 +392,71 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 6px;
+  padding: 6px 10px;
   border-radius: 6px;
-  cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  transition: background 0.1s;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
 }
 
-.plugin-item:hover {
-  background: var(--bg-panel-soft);
+.plugin-item:hover { background: var(--bg-panel-soft); }
+
+.plugin-item.is-selected {
+  background: rgba(45, 212, 191, 0.1);
+  border-color: var(--accent-teal);
 }
 
+.plugin-item input[type="radio"],
 .plugin-item input[type="checkbox"] {
   width: 14px;
   height: 14px;
   accent-color: var(--accent-teal);
+  cursor: pointer;
 }
+
+.plugin-item:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 1px;
+}
+
+.plugin-type {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.plugin-type-dll { background: rgba(45, 212, 191, 0.18); color: var(--accent-teal); }
+.plugin-type-exe { background: rgba(139, 92, 246, 0.18); color: var(--accent-purple); }
+.plugin-type-\? { background: var(--border-soft); color: var(--text-dim); }
 
 .plugin-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.btn-plugin-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-mute);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+  flex-shrink: 0;
+}
+
+.btn-plugin-remove:hover {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .plugin-count {
