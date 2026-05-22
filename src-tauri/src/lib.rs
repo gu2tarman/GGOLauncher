@@ -5,6 +5,7 @@ mod paths;
 mod plugins;
 mod profile;
 mod settings;
+mod updater;
 
 use notice::NoticeBoard;
 use paths::PathInfo;
@@ -137,6 +138,31 @@ async fn fetch_notice() -> Result<NoticeBoard, String> {
     notice::fetch().await
 }
 
+// ── CUO 업데이트 체크 ─────────────────────────────────────
+#[tauri::command]
+async fn cuo_check_update(cuo_path: String) -> Result<updater::UpdateCheck, String> {
+    updater::check_update(&cuo_path).await
+}
+
+/// CUO 업데이트 적용. 진행률은 `cuo_update_progress` 이벤트로 emit
+/// (페이로드: { bytesDone: u64, totalBytes: u64 }).
+#[tauri::command]
+async fn cuo_apply_update(
+    cuo_path: String,
+    check: updater::UpdateCheck,
+    window: tauri::Window,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let win = window.clone();
+    updater::apply_update(&cuo_path, &check, move |bytes_done, total| {
+        let _ = win.emit(
+            "cuo_update_progress",
+            serde_json::json!({ "bytesDone": bytes_done, "totalBytes": total }),
+        );
+    })
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -157,6 +183,8 @@ pub fn run() {
             plugin_select_file,
             import_plugin_from_zip,
             fetch_notice,
+            cuo_check_update,
+            cuo_apply_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

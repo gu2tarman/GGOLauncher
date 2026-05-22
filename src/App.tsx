@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { NoticeBoard } from "./NoticeBoard";
 import { ManageProfilesModal } from "./ManageProfilesModal";
 import { EditProfileModal } from "./EditProfileModal";
 import { PluginPanel } from "./PluginPanel";
-import type { PluginEntry, Profile, Settings } from "./types";
+import type { PluginEntry, Profile, Settings, UpdateCheck } from "./types";
 
 type LinkButtonProps = { label: string; url?: string };
 
@@ -44,6 +45,8 @@ function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "checking" });
+  // 사용 가능한 manifest 보관 (다운로드 시 재사용 — 중복 fetch 회피)
+  const pendingCheck = useRef<UpdateCheck | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [ggoceVersion, setGgoceVersion] = useState<string | null>(null);
@@ -53,9 +56,51 @@ function App() {
       .launcherInit()
       .then(setSettings)
       .catch((e) => setLoadError(String(e)));
+  }, []);
 
-    const t = setTimeout(() => setUpdateState({ kind: "uptodate" }), 1500);
-    return () => clearTimeout(t);
+  // 활성 프로필 cuo_path 기반으로 업데이트 체크 (프로필 변경 시 재실행)
+  useEffect(() => {
+    const activeId = settings?.active_profile_id;
+    const cuoPath = settings?.profiles.find((p) => p.id === activeId)?.cuo_path;
+    if (!cuoPath) {
+      setUpdateState({ kind: "uptodate" });
+      return;
+    }
+    let cancelled = false;
+    setUpdateState({ kind: "checking" });
+    api
+      .cuoCheckUpdate(cuoPath)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.changed.length === 0) {
+          pendingCheck.current = null;
+          setUpdateState({ kind: "uptodate" });
+        } else {
+          pendingCheck.current = res;
+          setUpdateState({ kind: "available", version: res.remote_version });
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setUpdateState({ kind: "error", message: String(e) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings?.active_profile_id, settings?.profiles]);
+
+  // 업데이트 다운로드 진행률 이벤트 구독
+  useEffect(() => {
+    const unlistenPromise = listen<{ bytesDone: number; totalBytes: number }>(
+      "cuo_update_progress",
+      (e) => {
+        const { bytesDone, totalBytes } = e.payload;
+        const percent = totalBytes > 0 ? Math.floor((bytesDone / totalBytes) * 100) : 0;
+        setUpdateState({ kind: "downloading", percent });
+      }
+    );
+    return () => {
+      unlistenPromise.then((u) => u());
+    };
   }, []);
 
   /** settings를 갱신하고 디스크에도 저장. */
@@ -147,19 +192,19 @@ function App() {
   };
 
   // ── 업데이트 버튼 ─────────────────────────────────
-  const onUpdateClick = () => {
-    if (updateState.kind === "available") {
-      setUpdateState({ kind: "downloading", percent: 0 });
-      let pct = 0;
-      const iv = setInterval(() => {
-        pct += 12;
-        if (pct >= 100) {
-          clearInterval(iv);
-          setUpdateState({ kind: "ready" });
-        } else {
-          setUpdateState({ kind: "downloading", percent: pct });
-        }
-      }, 250);
+  const onUpdateClick = async () => {
+    if (updateState.kind !== "available") return;
+    const check = pendingCheck.current;
+    const cuoPath = profile?.cuo_path ?? "";
+    if (!check || !cuoPath) return;
+    setUpdateState({ kind: "downloading", percent: 0 });
+    try {
+      await api.cuoApplyUpdate(cuoPath, check);
+      // 적용 완료 → 재체크 (모두 일치하면 uptodate)
+      pendingCheck.current = null;
+      setUpdateState({ kind: "uptodate" });
+    } catch (e) {
+      setUpdateState({ kind: "error", message: String(e) });
     }
   };
   const onUpdateDoubleClick = () => {

@@ -76,3 +76,34 @@ export interface PathInfo {
   valid_uo: boolean;
   valid_cuo: boolean;
 }
+
+// ── CUO Update ─────────────────────────────────────────
+export interface ManifestFile {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+export interface UpdateManifest {
+  version: string;
+  released: string;
+  notes: string;
+  base_url: string;
+  files: ManifestFile[];
+}
+
+export type ChangeReason = "missing" | "size_mismatch" | "hash_mismatch";
+
+export interface ChangedFile {
+  path: string;
+  size: number;
+  reason: ChangeReason;
+}
+
+export interface UpdateCheck {
+  remote_version: string;
+  local_version: string | null;
+  changed: ChangedFile[];
+  total_bytes: number;
+  manifest: UpdateManifest;
+}

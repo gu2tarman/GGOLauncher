@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { NoticeBoard, PathInfo, Settings } from "./types";
+import type { NoticeBoard, PathInfo, Settings, UpdateCheck } from "./types";
 
 export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
@@ -30,4 +30,8 @@ export const api = {
 
   encryptPassword: (plain: string) => invoke<string>("encrypt_password", { plain }),
   decryptPassword: (stored: string) => invoke<string>("decrypt_password", { stored }),
+
+  cuoCheckUpdate: (cuoPath: string) => invoke<UpdateCheck>("cuo_check_update", { cuoPath }),
+  cuoApplyUpdate: (cuoPath: string, check: UpdateCheck) =>
+    invoke<void>("cuo_apply_update", { cuoPath, check }),
 };
