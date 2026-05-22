@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PathInfo {
@@ -104,22 +103,62 @@ fn is_default_version(v: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 fn read_pe_file_version(exe: &Path) -> Option<String> {
-    let path_str = exe.to_string_lossy();
-    // FileVersion 문자열은 옛 포맷("7, 0, 114, 65")일 수 있음.
-    // FileMajor/Minor/Build/Private 정수로 직접 조합해 "7.0.114.65" 강제.
-    let script = format!(
-        r#"$v = (Get-Item -LiteralPath "{}").VersionInfo; "$($v.FileMajorPart).$($v.FileMinorPart).$($v.FileBuildPart).$($v.FilePrivatePart)""#,
-        path_str.replace('"', "`\"")
-    );
-    let out = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()
-        .ok()?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() || s == "..." || s == "0.0.0.0" || s.to_lowercase().contains("error") {
+    // Win32 API 직접 호출 — PowerShell spawn (300~500ms + 콘솔 깜빡임) 대체.
+    use std::ffi::OsStr;
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, VS_FIXEDFILEINFO,
+    };
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(once(0)).collect()
+    }
+
+    let exe_w = to_wide(&exe.to_string_lossy());
+
+    // 1. Version info 데이터 크기 조회
+    let mut dummy: u32 = 0;
+    let size = unsafe { GetFileVersionInfoSizeW(exe_w.as_ptr(), &mut dummy) };
+    if size == 0 {
+        return None;
+    }
+
+    // 2. Version info 버퍼 채우기
+    let mut buf: Vec<u8> = vec![0; size as usize];
+    let ok =
+        unsafe { GetFileVersionInfoW(exe_w.as_ptr(), 0, size, buf.as_mut_ptr() as *mut _) };
+    if ok == 0 {
+        return None;
+    }
+
+    // 3. "\\" 서브블록에서 VS_FIXEDFILEINFO 추출
+    let sub_block = to_wide("\\");
+    let mut info_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let mut info_len: u32 = 0;
+    let ok = unsafe {
+        VerQueryValueW(
+            buf.as_ptr() as *const _,
+            sub_block.as_ptr(),
+            &mut info_ptr,
+            &mut info_len,
+        )
+    };
+    if ok == 0 || info_ptr.is_null() {
+        return None;
+    }
+
+    let info = unsafe { &*(info_ptr as *const VS_FIXEDFILEINFO) };
+    let major = (info.dwFileVersionMS >> 16) & 0xFFFF;
+    let minor = info.dwFileVersionMS & 0xFFFF;
+    let build = (info.dwFileVersionLS >> 16) & 0xFFFF;
+    let rev = info.dwFileVersionLS & 0xFFFF;
+
+    let version = format!("{major}.{minor}.{build}.{rev}");
+    if version == "0.0.0.0" {
         None
     } else {
-        Some(s)
+        Some(version)
     }
 }
 

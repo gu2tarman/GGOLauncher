@@ -4,6 +4,11 @@ dist/
 *.local
 .vite/
 
+# TypeScript / Vite 빌드 부산물
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+
 # Rust / Tauri
 src-tauri/target/
 src-tauri/gen/
