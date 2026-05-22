@@ -29,8 +29,29 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const [showPw, setShowPw] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    setDraft(profile);
-    setShowPw({});
+    if (!profile) {
+      setDraft(null);
+      setShowPw({});
+      return;
+    }
+    // 비밀번호 복호화 — draft에는 평문 보관. 저장 시 다시 암호화.
+    let cancelled = false;
+    (async () => {
+      const accounts = await Promise.all(
+        profile.server.accounts.map(async (a) => ({
+          ...a,
+          password_encrypted: a.password_encrypted
+            ? await api.decryptPassword(a.password_encrypted).catch(() => "")
+            : "",
+        }))
+      );
+      if (cancelled) return;
+      setDraft({ ...profile, server: { ...profile.server, accounts } });
+      setShowPw({});
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [profile, open]);
 
   // 경로 입력 변경 시 디바운스로 inspect_path 호출
@@ -154,9 +175,22 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
 
   const canSave = draft.name.trim().length > 0 && draft.server.address.trim().length > 0;
 
-  const onSaveClick = () => {
+  const onSaveClick = async () => {
     if (!canSave || !draft) return;
-    onSave(draft);
+    // 저장 직전 — draft의 평문 비밀번호를 다시 암호화
+    const accounts = await Promise.all(
+      draft.server.accounts.map(async (a) => ({
+        ...a,
+        password_encrypted: a.password_encrypted
+          ? await api.encryptPassword(a.password_encrypted).catch(() => a.password_encrypted)
+          : "",
+      }))
+    );
+    const encrypted: Profile = {
+      ...draft,
+      server: { ...draft.server, accounts },
+    };
+    onSave(encrypted);
     onClose();
   };
 

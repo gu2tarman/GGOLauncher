@@ -27,4 +27,7 @@ export const api = {
     invoke<void>("cuo_launch", { profileId, accountId: accountId ?? null }),
   cuoLaunchMulti: (profileId: string, delayMs?: number) =>
     invoke<number>("cuo_launch_multi", { profileId, delayMs: delayMs ?? null }),
+
+  encryptPassword: (plain: string) => invoke<string>("encrypt_password", { plain }),
+  decryptPassword: (stored: string) => invoke<string>("decrypt_password", { stored }),
 };

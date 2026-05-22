@@ -1,3 +1,4 @@
+mod crypto;
 mod launcher;
 mod notice;
 mod paths;
@@ -82,6 +83,17 @@ async fn cuo_select_directory(start_dir: Option<String>) -> Option<String> {
     paths::pick_folder(start_dir, "ClassicUO 폴더 선택").await
 }
 
+// ── 비밀번호 암복호화 (DPAPI) ─────────────────────────────
+#[tauri::command]
+fn encrypt_password(plain: String) -> String {
+    crypto::encrypt(&plain)
+}
+
+#[tauri::command]
+fn decrypt_password(stored: String) -> String {
+    crypto::decrypt_or_passthrough(&stored)
+}
+
 // ── PLAY ──────────────────────────────────────────────────
 /// 단일 PLAY. account_id가 None이면 무인증 spawn (사용자가 CUO에서 직접 입력).
 #[tauri::command]
@@ -101,8 +113,8 @@ fn cuo_launch(profile_id: String, account_id: Option<String>) -> Result<(), Stri
 
 /// MULTI LOGIN — 프로필 안 모든 계정 순차 spawn. 반환: 실행된 계정 수.
 #[tauri::command]
-fn cuo_launch_multi(profile_id: String, delay_ms: Option<u64>) -> Result<usize, String> {
-    launcher::launch_multi(&profile_id, delay_ms.unwrap_or(2000))
+async fn cuo_launch_multi(profile_id: String, delay_ms: Option<u64>) -> Result<usize, String> {
+    launcher::launch_multi(&profile_id, delay_ms.unwrap_or(2000)).await
 }
 
 // ── 플러그인 ──────────────────────────────────────────────
@@ -137,6 +149,8 @@ pub fn run() {
             cuo_select_directory,
             cuo_launch,
             cuo_launch_multi,
+            encrypt_password,
+            decrypt_password,
             plugin_select_file,
             import_plugin_from_zip,
             fetch_notice,

@@ -16,7 +16,8 @@ pub fn launch(profile_id: &str, account_override: Option<&Account>) -> Result<()
 
 /// MULTI LOGIN — 프로필 안의 계정 N개를 순차 spawn.
 /// 각 spawn 사이 `delay_ms` 만큼 대기 (서버의 동일 IP 연속 접속 거부 방지).
-pub fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, String> {
+/// async: tokio::sleep 사용해서 Tauri IPC/webview 스레드 안 막음 (안 그러면 응답 없음).
+pub async fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, String> {
     let s = settings::load()?;
     let (profile, plugin, cuo_dir, cuo_exe, _) = resolve_launch_context(&s, profile_id)?;
 
@@ -27,7 +28,7 @@ pub fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, String> {
     let mut count = 0usize;
     for (i, account) in profile.server.accounts.iter().enumerate() {
         if i > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
         let args = build_cuo_args(&profile, &plugin.path, Some(account));
         spawn_hidden(&cuo_exe, &cuo_dir, &args)?;
@@ -125,13 +126,17 @@ fn build_cuo_args(
     // 계정 정보 — 로그인 화면 자동 채움용.
     // CUO 플래그 구조상 -autologin은 (로그인+서버+캐릭) 자동선택 ALL-OR-NOTHING.
     // 캐릭은 사용자가 골라야 하므로 -autologin False 유지. 로그인 화면에 creds만 채워짐.
+    // 비밀번호는 settings.json에 DPAPI로 암호화돼 있어서 spawn 전 복호화 필요.
     if let Some(a) = account {
         if !a.username.trim().is_empty() {
             out.push("-username".into());
             out.push(q(a.username.trim()));
             if !a.password_encrypted.trim().is_empty() {
-                out.push("-password".into());
-                out.push(q(a.password_encrypted.trim()));
+                let pw_plain = crate::crypto::decrypt_or_passthrough(&a.password_encrypted);
+                if !pw_plain.is_empty() {
+                    out.push("-password".into());
+                    out.push(q(&pw_plain));
+                }
             }
         }
     }

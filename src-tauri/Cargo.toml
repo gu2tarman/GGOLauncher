@@ -24,14 +24,18 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 rfd = "0.15"
 # ZIP 추출 (ClassicAssist 같은 통째 ZIP 플러그인 import)
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# DPAPI 인코딩용
+base64 = "0.22"
 
-# Windows Shell API (ShellExecuteExW로 elevation 자동 처리 + UAC 프롬프트)
+# Windows Shell API (ShellExecuteExW elevation, DPAPI 비밀번호 암호화)
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_System_Registry",
+    "Win32_System_Memory",
+    "Win32_Security_Cryptography",
 ] }
 
 [profile.release]
