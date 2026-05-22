@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { NoticeBoard } from "./NoticeBoard";
 import { ManageProfilesModal } from "./ManageProfilesModal";
+import { EditProfileModal } from "./EditProfileModal";
 import type { Profile, Settings } from "./types";
 
 type LinkButtonProps = { label: string; url?: string };
@@ -248,21 +249,34 @@ function App() {
 
       {/* ── Modals ────────────────────────── */}
       {settings && (
-        <ManageProfilesModal
-          open={manageOpen}
-          settings={settings}
-          onClose={() => setManageOpen(false)}
-          onChange={persistSettings}
-          onEdit={(id) => {
-            setEditingId(id);
-            // Phase 3b에서 EditProfileModal 열기. 지금은 임시 안내.
-            console.log("Edit profile (Phase 3b):", id);
-            alert(`Edit Profile 풀폼은 Phase 3b에서 구현됩니다.\n프로필 ID: ${id}`);
-          }}
-        />
+        <>
+          <ManageProfilesModal
+            open={manageOpen}
+            settings={settings}
+            onClose={() => setManageOpen(false)}
+            onChange={persistSettings}
+            onEdit={(id) => setEditingId(id)}
+          />
+          <EditProfileModal
+            open={editingId !== null}
+            profile={
+              editingId
+                ? settings.profiles.find((p) => p.id === editingId) ?? null
+                : null
+            }
+            onClose={() => setEditingId(null)}
+            onSave={(updated) => {
+              const next: Settings = {
+                ...settings,
+                profiles: settings.profiles.map((p) =>
+                  p.id === updated.id ? updated : p
+                ),
+              };
+              persistSettings(next);
+            }}
+          />
+        </>
       )}
-      {/* editingId은 Phase 3b에서 사용. lint 회피용 참조. */}
-      {editingId && null}
     </div>
   );
 }

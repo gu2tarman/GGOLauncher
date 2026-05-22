@@ -540,6 +540,117 @@ button {
   font-size: 13px;
 }
 
+.btn-primary:disabled,
+.btn-primary-sm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* ── Edit Profile form ───────────────────────────── */
+.form-section { margin-bottom: 22px; }
+
+.form-section-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--accent-teal);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 14px;
+}
+
+.form-field { margin-bottom: 12px; }
+
+.form-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.form-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-mute);
+  letter-spacing: 0;
+}
+
+.text-input {
+  width: 100%;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.text-input:focus {
+  border-color: var(--accent-teal);
+  background: var(--bg-panel-soft);
+}
+
+.text-input::placeholder { color: var(--text-mute); }
+
+select.text-input {
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+
+.row-2 {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.row-2 > .form-field:first-child { flex: 1; }
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.path-input { flex: 1; }
+
+.path-mark {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.path-mark.ok { background: var(--accent-teal); color: #04231e; }
+.path-mark.warn { background: var(--warning); color: #1a0e00; }
+.path-mark.err { background: var(--danger); color: #fff; }
+
+.password-row {
+  display: flex;
+  gap: 8px;
+}
+
+.password-row > .text-input { flex: 1; }
+
 .btn-primary {
   background: linear-gradient(135deg, var(--accent-teal) 0%, var(--accent-teal-2) 100%);
   color: #04231e;

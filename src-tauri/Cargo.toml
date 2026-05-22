@@ -20,6 +20,8 @@ dirs = "5"
 # HTTP: rustls 사용 (openssl 회피 — Windows에서 빌드 단순)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# 네이티브 폴더/파일 선택 다이얼로그
+rfd = "0.15"
 
 [profile.release]
 panic = "abort"

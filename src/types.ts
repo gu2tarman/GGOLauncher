@@ -57,3 +57,12 @@ export interface NoticeBoard {
   margo: Notice[];
   ggouo: Notice[];
 }
+
+// ── Paths ──────────────────────────────────────────────
+export interface PathInfo {
+  exists: boolean;
+  is_dir: boolean;
+  is_file: boolean;
+  valid_uo: boolean;
+  valid_cuo: boolean;
+}
