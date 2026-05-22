@@ -66,6 +66,65 @@ function App() {
 
   const profile = activeProfile(settings);
   const hasProfile = !!profile;
+  const hasActivePlugin = !!settings?.plugins.find((p) => p.enabled);
+  const canPlay = hasProfile && hasActivePlugin;
+  const accountCount = profile?.server.accounts.length ?? 0;
+  const activeAccount = profile?.server.accounts.find(
+    (a) => a.id === profile.server.active_account_id
+  );
+  const canMultiLogin = canPlay && accountCount > 0;
+
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchInfo, setLaunchInfo] = useState<string | null>(null);
+
+  // PLAY (단일, 무인증 — CUO 로그인 화면에서 사용자가 입력)
+  const onPlay = async () => {
+    if (!profile) return;
+    setLaunching(true);
+    setLaunchError(null);
+    setLaunchInfo(null);
+    try {
+      await api.cuoLaunch(profile.id, null);
+    } catch (e) {
+      setLaunchError(String(e));
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  // MULTI LOGIN (프로필 안 모든 계정 순차 자동 로그인)
+  const onMultiLogin = async () => {
+    if (!profile) return;
+    if (accountCount === 0) {
+      setLaunchError("등록된 계정이 없습니다. Edit Profile에서 추가하세요.");
+      return;
+    }
+    setLaunching(true);
+    setLaunchError(null);
+    setLaunchInfo(null);
+    try {
+      const count = await api.cuoLaunchMulti(profile.id, 4000);
+      setLaunchInfo(`${count}개 계정 순차 실행 중...`);
+    } catch (e) {
+      setLaunchError(String(e));
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  // 에러 토스트 5초 자동 닫힘
+  useEffect(() => {
+    if (!launchError) return;
+    const t = setTimeout(() => setLaunchError(null), 5000);
+    return () => clearTimeout(t);
+  }, [launchError]);
+
+  useEffect(() => {
+    if (!launchInfo) return;
+    const t = setTimeout(() => setLaunchInfo(null), 4000);
+    return () => clearTimeout(t);
+  }, [launchInfo]);
 
   // 활성 프로필의 CUO 경로 기반으로 GGOCE 버전 자동 감지
   useEffect(() => {
@@ -179,13 +238,40 @@ function App() {
 
       {/* ── Right ────────────────────────── */}
       <main className="right-column">
-        <div className="top-actions">
+        <div className="top-actions top-actions-3col">
           <button
-            className={`btn-play ${!hasProfile ? "btn-play-disabled" : ""}`}
-            disabled={!hasProfile}
-            title={hasProfile ? "" : "프로필을 먼저 생성하세요"}
+            className={`btn-play ${!canPlay ? "btn-play-disabled" : ""}`}
+            disabled={!canPlay || launching}
+            onClick={onPlay}
+            title={
+              !hasProfile
+                ? "프로필을 먼저 생성하세요"
+                : !hasActivePlugin
+                ? "플러그인을 먼저 등록·선택하세요"
+                : "CUO 로그인 화면에서 계정 직접 입력"
+            }
           >
             PLAY
+            <div className="btn-sublabel">수동 로그인</div>
+          </button>
+          <button
+            className={`btn-multi ${!canMultiLogin ? "btn-multi-disabled" : ""}`}
+            disabled={!canMultiLogin || launching}
+            onClick={onMultiLogin}
+            title={
+              !hasProfile
+                ? "프로필을 먼저 생성하세요"
+                : !hasActivePlugin
+                ? "플러그인을 먼저 등록·선택하세요"
+                : accountCount === 0
+                ? "계정을 먼저 등록하세요"
+                : `${accountCount}개 계정 순차 자동 로그인`
+            }
+          >
+            MULTI LOGIN
+            <div className="btn-sublabel">
+              {accountCount > 0 ? `${accountCount}개 계정 순차` : "계정 없음"}
+            </div>
           </button>
           <button
             className={`btn-update ${updateClass} ${updateDisabled ? "is-disabled" : ""}`}
@@ -215,6 +301,12 @@ function App() {
             <div className="profile-info">
               <div className="profile-name">
                 {profile ? profile.name : "프로필 없음"}
+                {profile && accountCount > 0 && (
+                  <span className="profile-account-pill">
+                    {activeAccount?.username || "계정 미선택"}
+                    {accountCount > 1 && ` · 총 ${accountCount}계정`}
+                  </span>
+                )}
               </div>
               <div className="profile-addr">
                 {profile
@@ -241,6 +333,16 @@ function App() {
 
         {loadError && (
           <div className="error-toast">설정 로드 실패: {loadError}</div>
+        )}
+        {launchError && (
+          <div className="error-toast" onClick={() => setLaunchError(null)}>
+            실행 실패: {launchError}
+          </div>
+        )}
+        {launchInfo && (
+          <div className="info-toast" onClick={() => setLaunchInfo(null)}>
+            {launchInfo}
+          </div>
         )}
       </main>
 

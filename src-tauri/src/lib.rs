@@ -1,3 +1,4 @@
+mod launcher;
 mod notice;
 mod paths;
 mod plugins;
@@ -81,6 +82,29 @@ async fn cuo_select_directory(start_dir: Option<String>) -> Option<String> {
     paths::pick_folder(start_dir, "ClassicUO 폴더 선택").await
 }
 
+// ── PLAY ──────────────────────────────────────────────────
+/// 단일 PLAY. account_id가 None이면 무인증 spawn (사용자가 CUO에서 직접 입력).
+#[tauri::command]
+fn cuo_launch(profile_id: String, account_id: Option<String>) -> Result<(), String> {
+    let s = settings::load()?;
+    let account = if let Some(aid) = account_id {
+        s.profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .and_then(|p| p.server.accounts.iter().find(|a| a.id == aid))
+            .cloned()
+    } else {
+        None
+    };
+    launcher::launch(&profile_id, account.as_ref())
+}
+
+/// MULTI LOGIN — 프로필 안 모든 계정 순차 spawn. 반환: 실행된 계정 수.
+#[tauri::command]
+fn cuo_launch_multi(profile_id: String, delay_ms: Option<u64>) -> Result<usize, String> {
+    launcher::launch_multi(&profile_id, delay_ms.unwrap_or(2000))
+}
+
 // ── 플러그인 ──────────────────────────────────────────────
 #[tauri::command]
 async fn plugin_select_file() -> Option<String> {
@@ -111,6 +135,8 @@ pub fn run() {
             detect_ggoce_version,
             client_select_directory,
             cuo_select_directory,
+            cuo_launch,
+            cuo_launch_multi,
             plugin_select_file,
             import_plugin_from_zip,
             fetch_notice,

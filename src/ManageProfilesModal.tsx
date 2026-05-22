@@ -42,9 +42,9 @@ export function ManageProfilesModal({
       server: {
         address: "login.uoserver.com",
         port: 2593,
-        username: "",
-        password_encrypted: "",
         encryption: "auto",
+        accounts: [],
+        active_account_id: null,
       },
     };
     onChange({

@@ -8,7 +8,6 @@ pub struct Profile {
     #[serde(default)]
     pub cuo_path: Option<String>,
     pub server: ServerConfig,
-    /// 자동 감지되거나 사용자가 직접 입력한 클라이언트 버전 (예: "7.0.95.0")
     #[serde(default)]
     pub client_version: Option<String>,
 }
@@ -17,13 +16,35 @@ pub struct Profile {
 pub struct ServerConfig {
     pub address: String,
     pub port: u16,
-    #[serde(default)]
-    pub username: String,
-    /// DPAPI로 암호화된 비밀번호 (Phase 5에서 구현). 현재는 평문 placeholder.
-    #[serde(default)]
-    pub password_encrypted: String,
+
     #[serde(default)]
     pub encryption: EncryptionType,
+
+    /// 이 프로필의 계정 리스트. 여러 캐릭/계정을 한 프로필 안에 묶음.
+    #[serde(default)]
+    pub accounts: Vec<Account>,
+
+    /// 현재 활성 계정 id (단일 PLAY 시 사용).
+    #[serde(default)]
+    pub active_account_id: Option<String>,
+
+    // ── 레거시 필드 (구 settings.json 마이그레이션용) ──
+    // load 시 자동으로 accounts[0]으로 이동, save 시 빈 값이면 안 씀.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub username: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub password_encrypted: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Account {
+    pub id: String,
+    pub username: String,
+    /// DPAPI 암호화될 비밀번호 (현재는 평문 placeholder).
+    pub password_encrypted: String,
+    /// 화면 표시용 별명 (예: "메인 캐릭"). 없으면 username 표시.
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -35,4 +56,22 @@ pub enum EncryptionType {
     OldBlowfish,
     Blowfish125,
     Twofish,
+}
+
+/// 짧은 랜덤 id ("a_<base36 epoch>_<랜덤4>").
+pub fn new_account_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // 간단한 LCG로 4자리 base36 생성 (외부 rand crate 회피)
+    let mut x: u64 = secs.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
+    let mut suffix = String::new();
+    for _ in 0..4 {
+        let c = (x % 36) as u8;
+        suffix.push(if c < 10 { (b'0' + c) as char } else { (b'a' + (c - 10)) as char });
+        x /= 36;
+    }
+    format!("a_{:x}_{}", secs, suffix)
 }

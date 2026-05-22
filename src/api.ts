@@ -22,4 +22,9 @@ export const api = {
 
   pluginSelectFile: () => invoke<string | null>("plugin_select_file"),
   importPluginFromZip: () => invoke<string | null>("import_plugin_from_zip"),
+
+  cuoLaunch: (profileId: string, accountId?: string | null) =>
+    invoke<void>("cuo_launch", { profileId, accountId: accountId ?? null }),
+  cuoLaunchMulti: (profileId: string, delayMs?: number) =>
+    invoke<number>("cuo_launch_multi", { profileId, delayMs: delayMs ?? null }),
 };

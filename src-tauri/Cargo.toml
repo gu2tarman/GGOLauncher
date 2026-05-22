@@ -25,6 +25,15 @@ rfd = "0.15"
 # ZIP 추출 (ClassicAssist 같은 통째 ZIP 플러그인 import)
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+# Windows Shell API (ShellExecuteExW로 elevation 자동 처리 + UAC 프롬프트)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_System_Registry",
+] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

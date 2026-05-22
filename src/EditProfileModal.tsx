@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 import { api } from "./api";
-import type { EncryptionType, PathInfo, Profile } from "./types";
+import type { Account, EncryptionType, PathInfo, Profile } from "./types";
 
 type Props = {
   open: boolean;
@@ -21,15 +21,16 @@ const ENCRYPTIONS: { value: EncryptionType; label: string }[] = [
 export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   // 로컬 폼 state — 모달 열릴 때마다 prop으로 초기화. Save 시에만 부모에 반영.
   const [draft, setDraft] = useState<Profile | null>(profile);
-  const [showPw, setShowPw] = useState(false);
   const [uoCheck, setUoCheck] = useState<PathInfo | null>(null);
   const [cuoCheck, setCuoCheck] = useState<PathInfo | null>(null);
   const [autoVersion, setAutoVersion] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  // 각 계정 비밀번호 show/hide 상태 (id → bool)
+  const [showPw, setShowPw] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setDraft(profile);
-    setShowPw(false);
+    setShowPw({});
   }, [profile, open]);
 
   // 경로 입력 변경 시 디바운스로 inspect_path 호출
@@ -85,6 +86,62 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
     setDraft((d) =>
       d ? { ...d, server: { ...d.server, [key]: value } } : d
     );
+
+  const updateAccount = (id: string, patch: Partial<Account>) =>
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            server: {
+              ...d.server,
+              accounts: d.server.accounts.map((a) =>
+                a.id === id ? { ...a, ...patch } : a
+              ),
+            },
+          }
+        : d
+    );
+
+  const addAccount = () =>
+    setDraft((d) => {
+      if (!d) return d;
+      const id = `a_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      // 비번 자동 채움: 기존 계정 중 비밀번호가 있는 첫 항목에서 복사.
+      // (보통 같은 서버 다중 캐릭은 비번 공유 — 다르면 사용자가 그 자리에서 수정)
+      const defaultPw =
+        d.server.accounts.find((a) => a.password_encrypted.trim().length > 0)
+          ?.password_encrypted ?? "";
+      const newAcc: Account = {
+        id,
+        username: "",
+        password_encrypted: defaultPw,
+      };
+      return {
+        ...d,
+        server: {
+          ...d.server,
+          accounts: [...d.server.accounts, newAcc],
+          active_account_id: d.server.active_account_id ?? id,
+        },
+      };
+    });
+
+  const removeAccount = (id: string) =>
+    setDraft((d) => {
+      if (!d) return d;
+      const accounts = d.server.accounts.filter((a) => a.id !== id);
+      const active =
+        d.server.active_account_id === id
+          ? accounts[0]?.id ?? null
+          : d.server.active_account_id;
+      return {
+        ...d,
+        server: { ...d.server, accounts, active_account_id: active },
+      };
+    });
+
+  const setActiveAccount = (id: string) =>
+    updateServer("active_account_id", id);
 
   const pickUo = async () => {
     const picked = await api.clientSelectDirectory(draft.uo_path || undefined);
@@ -180,32 +237,6 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       {/* Server */}
       <section className="form-section">
         <header className="form-section-title">서버 접속</header>
-        <Field label="계정">
-          <input
-            className="text-input"
-            value={draft.server.username}
-            onChange={(e) => updateServer("username", e.target.value)}
-            autoComplete="off"
-          />
-        </Field>
-        <Field label="비밀번호" hint="저장 시 암호화됩니다 (예정)">
-          <div className="password-row">
-            <input
-              className="text-input"
-              type={showPw ? "text" : "password"}
-              value={draft.server.password_encrypted}
-              onChange={(e) => updateServer("password_encrypted", e.target.value)}
-              autoComplete="new-password"
-            />
-            <button
-              type="button"
-              className="btn-action"
-              onClick={() => setShowPw((s) => !s)}
-            >
-              {showPw ? "숨기기" : "보이기"}
-            </button>
-          </div>
-        </Field>
         <div className="row-2">
           <Field label="서버 주소">
             <input
@@ -243,6 +274,88 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
             ))}
           </select>
         </Field>
+      </section>
+
+      {/* Accounts */}
+      <section className="form-section">
+        <header className="form-section-title account-header">
+          <span>
+            계정 목록 <span className="form-hint">(다중 캐릭터 연속 로그인용)</span>
+          </span>
+          <button
+            type="button"
+            className="btn-action"
+            onClick={addAccount}
+            title="이전 계정의 비밀번호가 자동 채워집니다 (수정 가능)"
+          >
+            + 계정 추가
+          </button>
+        </header>
+        {draft.server.accounts.length === 0 && (
+          <div className="account-empty">
+            계정이 없습니다. PLAY는 CUO 로그인 화면에서 직접 입력하게 됩니다.
+            <br />
+            "+ 계정 추가"로 MULTI LOGIN용 계정을 등록할 수 있습니다.
+          </div>
+        )}
+        {draft.server.accounts.map((acc, i) => {
+          const isActive = draft.server.active_account_id === acc.id;
+          const reveal = !!showPw[acc.id];
+          return (
+            <div key={acc.id} className={`account-row ${isActive ? "is-active" : ""}`}>
+              <label className="account-radio">
+                <input
+                  type="radio"
+                  name="active-account"
+                  checked={isActive}
+                  onChange={() => setActiveAccount(acc.id)}
+                  title="기본(단일 PLAY 시 사용)"
+                />
+              </label>
+              <div className="account-fields">
+                <input
+                  className="text-input account-username"
+                  placeholder="계정명"
+                  value={acc.username}
+                  onChange={(e) =>
+                    updateAccount(acc.id, { username: e.target.value })
+                  }
+                  autoComplete="off"
+                />
+                <div className="account-pw">
+                  <input
+                    className="text-input"
+                    type={reveal ? "text" : "password"}
+                    placeholder="비밀번호"
+                    value={acc.password_encrypted}
+                    onChange={(e) =>
+                      updateAccount(acc.id, { password_encrypted: e.target.value })
+                    }
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    className="btn-action"
+                    onClick={() =>
+                      setShowPw((s) => ({ ...s, [acc.id]: !s[acc.id] }))
+                    }
+                  >
+                    {reveal ? "숨김" : "보임"}
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-action btn-action-danger"
+                onClick={() => removeAccount(acc.id)}
+                title="이 계정 제거"
+              >
+                삭제
+              </button>
+              <span className="account-index">#{i + 1}</span>
+            </div>
+          );
+        })}
       </section>
     </Modal>
   );

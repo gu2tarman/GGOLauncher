@@ -164,6 +164,156 @@ button {
   height: 80px;
 }
 
+/* 3등분: PLAY 35% / MULTI LOGIN 35% / UPDATE 30% */
+.top-actions-3col {
+  grid-template-columns: 7fr 7fr 6fr;
+}
+
+.btn-sublabel {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  opacity: 0.75;
+  margin-top: 3px;
+}
+
+/* MULTI LOGIN — 보라 그라데이션 */
+.btn-multi {
+  background: linear-gradient(135deg, var(--accent-purple) 0%, #6d3fdc 100%);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-family: inherit;
+  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: filter 0.15s, box-shadow 0.2s, transform 0.08s;
+}
+
+.btn-multi:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 8px 22px rgba(139, 92, 246, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-multi:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-multi-disabled {
+  background: var(--bg-panel) !important;
+  color: var(--text-mute) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+/* PLAY 버튼 폰트 사이즈 조정 (3등분으로 좁아져서) */
+.top-actions-3col .btn-play {
+  font-size: 18px;
+}
+
+/* 활성 계정 pill (프로필명 옆에) */
+.profile-account-pill {
+  margin-left: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--accent-purple);
+  background: rgba(139, 92, 246, 0.12);
+  padding: 2px 8px;
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
+/* Info 토스트 (Error 토스트와 다른 색) */
+.info-toast {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  background: var(--accent-purple);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+}
+
+/* ── EditProfileModal 계정 리스트 ─────────────────── */
+.account-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.account-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-mute);
+  background: var(--bg-panel);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-md);
+  line-height: 1.6;
+}
+
+.account-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto 32px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  background: var(--bg-panel);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.account-row.is-active {
+  border-color: var(--accent-purple);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.account-radio {
+  display: flex;
+  justify-content: center;
+}
+
+.account-radio input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-purple);
+  cursor: pointer;
+}
+
+.account-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+
+.account-pw {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.account-pw > .text-input { flex: 1; min-width: 0; }
+
+.account-index {
+  font-size: 10px;
+  color: var(--text-mute);
+  font-family: ui-monospace, Consolas, monospace;
+  text-align: center;
+}
+
 .btn-play {
   background: linear-gradient(135deg, var(--accent-teal) 0%, var(--accent-teal-2) 100%);
   color: #04231e;

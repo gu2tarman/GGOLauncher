@@ -54,7 +54,37 @@ pub fn load() -> Result<Settings, String> {
         return Ok(Settings::default());
     }
     let txt = fs::read_to_string(&p).map_err(|e| format!("settings 읽기 실패: {e}"))?;
-    serde_json::from_str(&txt).map_err(|e| format!("settings 파싱 실패: {e}"))
+    let mut s: Settings =
+        serde_json::from_str(&txt).map_err(|e| format!("settings 파싱 실패: {e}"))?;
+    migrate(&mut s);
+    Ok(s)
+}
+
+/// 구 데이터 → 신규 계정 리스트 구조로 자동 이전.
+/// - profile.server.username/password_encrypted 가 있고 accounts가 비어있으면 첫 Account로 이동.
+fn migrate(s: &mut Settings) {
+    use crate::profile::{new_account_id, Account};
+    for p in &mut s.profiles {
+        let has_legacy = !p.server.username.is_empty() || !p.server.password_encrypted.is_empty();
+        if has_legacy && p.server.accounts.is_empty() {
+            let id = new_account_id();
+            p.server.accounts.push(Account {
+                id: id.clone(),
+                username: std::mem::take(&mut p.server.username),
+                password_encrypted: std::mem::take(&mut p.server.password_encrypted),
+                display_name: None,
+            });
+            p.server.active_account_id = Some(id);
+        }
+        // active_account_id가 가리키는 계정이 사라졌으면 첫 번째로 대체
+        if let Some(active) = &p.server.active_account_id {
+            if !p.server.accounts.iter().any(|a| &a.id == active) {
+                p.server.active_account_id = p.server.accounts.first().map(|a| a.id.clone());
+            }
+        } else if !p.server.accounts.is_empty() {
+            p.server.active_account_id = Some(p.server.accounts[0].id.clone());
+        }
+    }
 }
 
 pub fn save(s: &Settings) -> Result<(), String> {

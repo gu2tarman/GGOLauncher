@@ -7,12 +7,22 @@ export type EncryptionType =
   | "blowfish125"
   | "twofish";
 
+export interface Account {
+  id: string;
+  username: string;
+  password_encrypted: string;
+  display_name?: string | null;
+}
+
 export interface ServerConfig {
   address: string;
   port: number;
-  username: string;
-  password_encrypted: string;
   encryption: EncryptionType;
+  accounts: Account[];
+  active_account_id: string | null;
+  // 레거시 (마이그레이션 후엔 빈 문자열)
+  username?: string;
+  password_encrypted?: string;
 }
 
 export interface Profile {
