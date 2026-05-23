@@ -55,6 +55,7 @@ export function PluginPanel({ plugins, onChange }: Props) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<string>("");
   const editInputRef = useRef<HTMLInputElement | null>(null);
+  const suppressBlurCommitRef = useRef(false);
 
   useEffect(() => {
     if (editingIdx !== null && editInputRef.current) {
@@ -64,6 +65,7 @@ export function PluginPanel({ plugins, onChange }: Props) {
   }, [editingIdx]);
 
   const startEdit = (i: number) => {
+    suppressBlurCommitRef.current = false;
     setEditingIdx(i);
     setEditDraft(plugins[i].display_name ?? autoNameOf(plugins[i].path));
   };
@@ -82,7 +84,10 @@ export function PluginPanel({ plugins, onChange }: Props) {
     onChange(next);
     setEditingIdx(null);
   };
-  const cancelEdit = () => setEditingIdx(null);
+  const cancelEdit = () => {
+    suppressBlurCommitRef.current = true;
+    setEditingIdx(null);
+  };
 
   // 불변식 보강: 플러그인이 있는데 아무도 활성 아니면 첫 번째 자동 선택
   useEffect(() => {
@@ -201,7 +206,13 @@ export function PluginPanel({ plugins, onChange }: Props) {
                     value={editDraft}
                     onChange={(e) => setEditDraft(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    onBlur={commitEdit}
+                    onBlur={() => {
+                      if (suppressBlurCommitRef.current) {
+                        suppressBlurCommitRef.current = false;
+                        return;
+                      }
+                      commitEdit();
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();

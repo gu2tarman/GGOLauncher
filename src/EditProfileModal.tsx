@@ -224,13 +224,20 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
     // 저장 직전 — draft의 평문 비밀번호를 다시 암호화.
     // 암호화 실패 시 저장 중단(평문 저장 금지).
     try {
+      let multiSeen = 0;
       const accounts = await Promise.all(
-        draft.server.accounts.map(async (a) => ({
-          ...a,
-          password_encrypted: a.password_encrypted
-            ? await api.encryptPassword(a.password_encrypted)
-            : "",
-        }))
+        draft.server.accounts.map(async (a, i) => {
+          const wantsMulti = isMultiEnabled(a, i);
+          const multi_enabled = wantsMulti && multiSeen < 6;
+          if (wantsMulti) multiSeen += 1;
+          return {
+            ...a,
+            multi_enabled,
+            password_encrypted: a.password_encrypted
+              ? await api.encryptPassword(a.password_encrypted)
+              : "",
+          };
+        })
       );
       const encrypted: Profile = {
         ...draft,

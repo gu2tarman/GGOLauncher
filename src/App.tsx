@@ -80,6 +80,7 @@ function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "checking" });
+  const [updateRetryNonce, setUpdateRetryNonce] = useState(0);
   // 사용 가능한 manifest 보관 (다운로드 시 재사용 — 중복 fetch 회피)
   const pendingCheck = useRef<UpdateCheck | null>(null);
 
@@ -160,7 +161,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [settings?.active_profile_id, settings?.profiles]);
+  }, [settings?.active_profile_id, settings?.profiles, updateRetryNonce]);
 
   // CUO 업데이트 다운로드 진행률
   useEffect(() => {
@@ -249,6 +250,12 @@ function App() {
   );
   // MULTI 대상 카운트 (레거시: 인덱스<6이면 true)
   const multiCount = profile
+    ? profile.server.accounts.filter((a, i) => {
+        const v = a.multi_enabled;
+        return v == null ? i < 6 : v === true;
+      }).slice(0, 6).length
+    : 0;
+  const multiSelectedTotal = profile
     ? profile.server.accounts.filter((a, i) => {
         const v = a.multi_enabled;
         return v == null ? i < 6 : v === true;
@@ -556,7 +563,11 @@ function App() {
           >
             MULTI LOGIN
             <div className="btn-sublabel">
-              {multiCount > 0 ? `${multiCount}개 선택 / ${accountCount}계정` : "선택 0개"}
+              {multiCount > 0
+                ? multiSelectedTotal > 6
+                  ? `${multiCount}/6개 실행 / ${accountCount}계정`
+                  : `${multiCount}개 선택 / ${accountCount}계정`
+                : "선택 0개"}
             </div>
           </button>
           <button
@@ -623,8 +634,8 @@ function App() {
             className="error-toast"
             style={{ whiteSpace: "pre-wrap" }}
             onClick={() => {
-              // 재체크 트리거 — settings를 그대로 다시 적용해서 useEffect 재발화
-              if (settings) setSettings({ ...settings });
+              // 재체크 트리거
+              setUpdateRetryNonce((n) => n + 1);
             }}
           >
             업데이트 처리 실패 — 클릭하면 재시도{"\n"}
