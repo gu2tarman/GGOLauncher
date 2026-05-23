@@ -9,7 +9,7 @@ mod settings;
 mod updater;
 
 use notice::NoticeBoard;
-use paths::PathInfo;
+use paths::{FolderKind, PathInfo};
 use settings::Settings;
 
 // ── 외부 링크 ─────────────────────────────────────────────
@@ -26,7 +26,11 @@ fn open_external(url: String) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let cmd = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
         std::process::Command::new(cmd)
             .arg(&url)
             .spawn()
@@ -36,20 +40,32 @@ fn open_external(url: String) -> Result<(), String> {
 }
 
 fn validate_external_url(url: &str) -> Result<(), String> {
-    if url.is_empty() {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
         return Err("URL이 비어있습니다".into());
     }
-    // 제어 문자/줄바꿈/공백 거부 — ShellExecuteW가 해석 가능한 모든 경계 차단
-    if url.chars().any(|c| c.is_control() || c == '\n' || c == '\r' || c == '\0') {
+    if trimmed != url {
+        return Err("URL 앞뒤 공백은 허용되지 않습니다".into());
+    }
+    // 제어 문자/줄바꿈/NUL 거부 — OS 핸들러로 넘기기 전 경계 문자 차단
+    if url.chars().any(|c| c.is_control() || c == '\0') {
         return Err("URL에 허용되지 않는 문자가 포함됨".into());
     }
-    let lower = url.to_ascii_lowercase();
-    let allowed = lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("mailto:")
-        || lower.starts_with("tel:");
-    if !allowed {
-        return Err(format!("허용되지 않는 URL scheme: {url}"));
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("URL 형식 오류: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => {
+            if parsed.host_str().is_none() {
+                return Err("http/https URL에는 host가 필요합니다".into());
+            }
+        }
+        "mailto" | "tel" => {
+            if parsed.path().is_empty() {
+                return Err(format!("{} URL 값이 비어있습니다", parsed.scheme()));
+            }
+        }
+        scheme => {
+            return Err(format!("허용되지 않는 URL scheme: {scheme}"));
+        }
     }
     Ok(())
 }
@@ -112,6 +128,16 @@ fn detect_client_version(uo_path: String) -> Option<String> {
 #[tauri::command]
 fn detect_ggoce_version(cuo_path: String) -> Option<String> {
     paths::detect_ggoce_version(&cuo_path)
+}
+
+#[tauri::command]
+fn detect_folder_kind(path: String) -> FolderKind {
+    paths::detect_folder_kind(&path)
+}
+
+#[tauri::command]
+fn get_launcher_dir() -> Option<String> {
+    paths::launcher_dir()
 }
 
 #[tauri::command]
@@ -182,22 +208,36 @@ async fn cuo_check_update(cuo_path: String) -> Result<updater::UpdateCheck, Stri
     updater::check_update(&cuo_path).await
 }
 
+/// cuo_path가 비었거나 신규 설치인 케이스 — 로컬 검사 스킵하고 manifest만 받아옴.
+/// 결과의 `changed`는 manifest의 모든 파일을 Missing으로 표시.
+#[tauri::command]
+async fn cuo_fetch_manifest_for_install() -> Result<updater::UpdateCheck, String> {
+    updater::fetch_manifest_as_install().await
+}
+
 /// CUO 업데이트 적용. 진행률은 `cuo_update_progress` 이벤트로 emit
 /// (페이로드: { bytesDone: u64, totalBytes: u64 }).
+/// allow_original_overwrite: 원본 CUO 폴더 덮어쓰기 허용(사용자 확인 후 true).
 #[tauri::command]
 async fn cuo_apply_update(
     cuo_path: String,
     check: updater::UpdateCheck,
+    allow_original_overwrite: bool,
     window: tauri::Window,
 ) -> Result<(), String> {
     use tauri::Emitter;
     let win = window.clone();
-    updater::apply_update(&cuo_path, &check, move |bytes_done, total| {
-        let _ = win.emit(
-            "cuo_update_progress",
-            serde_json::json!({ "bytesDone": bytes_done, "totalBytes": total }),
-        );
-    })
+    updater::apply_update(
+        &cuo_path,
+        &check,
+        allow_original_overwrite,
+        move |bytes_done, total| {
+            let _ = win.emit(
+                "cuo_update_progress",
+                serde_json::json!({ "bytesDone": bytes_done, "totalBytes": total }),
+            );
+        },
+    )
     .await
 }
 
@@ -241,6 +281,8 @@ pub fn run() {
             inspect_path,
             detect_client_version,
             detect_ggoce_version,
+            detect_folder_kind,
+            get_launcher_dir,
             client_select_directory,
             cuo_select_directory,
             cuo_launch,
@@ -251,6 +293,7 @@ pub fn run() {
             import_plugin_from_zip,
             fetch_notice,
             cuo_check_update,
+            cuo_fetch_manifest_for_install,
             cuo_apply_update,
             launcher_check_update,
             launcher_apply_update,

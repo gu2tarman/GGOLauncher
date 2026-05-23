@@ -77,6 +77,13 @@ export interface PathInfo {
   valid_cuo: boolean;
 }
 
+/// detect_folder_kind 결과. Rust enum이 serde `tag = "kind"`로 직렬화됨.
+export type FolderKind =
+  | { kind: "new_install" }
+  | { kind: "ggoce"; version: string }
+  | { kind: "original_cuo" }
+  | { kind: "unknown" };
+
 // ── CUO Update ─────────────────────────────────────────
 export interface ManifestFile {
   path: string;

@@ -12,6 +12,64 @@ pub struct PathInfo {
     pub valid_cuo: bool,
 }
 
+/// 폴더가 어떤 종류인지 — 자동 업데이트 전 안전성 판정용.
+/// 마커: `version.txt`(GGO CE 배포가 항상 포함하는 파일)의 존재 유무.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FolderKind {
+    /// 폴더 없음/비어있음(.bak/.new 제외 시 빈 상태 포함). 신규 설치 대상.
+    NewInstall,
+    /// version.txt 발견 → GGO CE 확정.
+    Ggoce { version: String },
+    /// ClassicUO.exe는 있지만 version.txt 없음 → 원본 CUO(또는 비-GGO CE 변형).
+    OriginalCuo,
+    /// 위 모든 경우에 해당 안 됨 (파일은 있지만 식별 불가).
+    Unknown,
+}
+
+/// 폴더 종류 판정. 빈/미존재 폴더는 NewInstall.
+pub fn detect_folder_kind(path: &str) -> FolderKind {
+    let p = PathBuf::from(path);
+    if !p.is_dir() {
+        return FolderKind::NewInstall;
+    }
+    // GGO CE 마커: version.txt
+    let vtxt = p.join("version.txt");
+    if vtxt.is_file() {
+        if let Ok(s) = std::fs::read_to_string(&vtxt) {
+            let v = s.lines().next().unwrap_or("").trim().to_string();
+            if !v.is_empty() {
+                return FolderKind::Ggoce { version: v };
+            }
+        }
+        return FolderKind::Ggoce { version: String::new() };
+    }
+    // ClassicUO.exe만 있고 마커 없음 → 원본 CUO
+    let has_cuo_exe = ["ClassicUO.exe", "classicuo.exe", "CLASSICUO.EXE"]
+        .iter()
+        .any(|n| p.join(n).is_file());
+    if has_cuo_exe {
+        return FolderKind::OriginalCuo;
+    }
+    // 비어있는지 (사용자 데이터 흔적 없음) 판단
+    let empty = std::fs::read_dir(&p)
+        .map(|mut it| it.next().is_none())
+        .unwrap_or(false);
+    if empty {
+        FolderKind::NewInstall
+    } else {
+        FolderKind::Unknown
+    }
+}
+
+/// 런처 exe가 위치한 디렉터리 경로 반환. 신규 설치 기본 위치 계산용.
+pub fn launcher_dir() -> Option<String> {
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 pub fn inspect(path: &str) -> PathInfo {
     let p = PathBuf::from(path);
     let exists = p.exists();

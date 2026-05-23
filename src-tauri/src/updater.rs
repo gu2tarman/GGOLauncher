@@ -11,9 +11,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
-/// manifest의 path를 안전한 상대 경로 컴포넌트 리스트로 변환.
-/// 거부: 절대경로, 드라이브, Windows verbatim/UNC prefix, "..", 빈 세그먼트.
-fn sanitize_manifest_path(raw: &str) -> Result<PathBuf, String> {
+#[derive(Debug, Clone)]
+struct SafeManifestPath {
+    fs_path: PathBuf,
+    url_path: String,
+}
+
+/// manifest의 path를 안전한 상대 경로로 변환.
+/// 거부: 절대경로, 드라이브/UNC prefix, "..", 빈 세그먼트, URL/경로 혼동 문자.
+fn sanitize_manifest_path(raw: &str) -> Result<SafeManifestPath, String> {
     if raw.is_empty() {
         return Err("manifest path가 비어있음".into());
     }
@@ -23,7 +29,8 @@ fn sanitize_manifest_path(raw: &str) -> Result<PathBuf, String> {
         return Err(format!("manifest path 절대경로 금지: {raw}"));
     }
     let p = PathBuf::from(&normalized);
-    let mut out = PathBuf::new();
+    let mut fs_path = PathBuf::new();
+    let mut url_parts: Vec<String> = Vec::new();
     for c in p.components() {
         match c {
             Component::Normal(seg) => {
@@ -35,7 +42,11 @@ fn sanitize_manifest_path(raw: &str) -> Result<PathBuf, String> {
                 if s.len() == 2 && s.ends_with(':') {
                     return Err(format!("manifest path drive prefix 금지: {raw}"));
                 }
-                out.push(seg);
+                if !s.chars().all(is_safe_manifest_path_char) {
+                    return Err(format!("manifest path 허용되지 않는 문자: {raw}"));
+                }
+                fs_path.push(seg);
+                url_parts.push(s.into_owned());
             }
             Component::CurDir => continue,
             Component::ParentDir => {
@@ -46,10 +57,35 @@ fn sanitize_manifest_path(raw: &str) -> Result<PathBuf, String> {
             }
         }
     }
-    if out.as_os_str().is_empty() {
+    if fs_path.as_os_str().is_empty() {
         return Err(format!("manifest path 유효 세그먼트 없음: {raw}"));
     }
-    Ok(out)
+    Ok(SafeManifestPath {
+        fs_path,
+        url_path: url_parts.join("/"),
+    })
+}
+
+fn is_safe_manifest_path_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')
+}
+
+fn build_manifest_file_url(base_url: &str, safe_path: &SafeManifestPath) -> Result<String, String> {
+    let mut base =
+        reqwest::Url::parse(base_url).map_err(|e| format!("manifest base_url 오류: {e}"))?;
+    if base.scheme() != "https" {
+        return Err("manifest base_url은 https://여야 합니다".into());
+    }
+    if base.host_str().is_none() {
+        return Err("manifest base_url에는 host가 필요합니다".into());
+    }
+    if !base.path().ends_with('/') {
+        let path = format!("{}/", base.path());
+        base.set_path(&path);
+    }
+    base.join(&safe_path.url_path)
+        .map(|u| u.to_string())
+        .map_err(|e| format!("manifest 파일 URL 조합 실패: {e}"))
 }
 
 /// 최종 dest가 base 안에 있는지 확인 (canonicalize 기반, 미존재 파일이면 부모 기준).
@@ -62,12 +98,14 @@ fn assert_inside_base(base: &Path, dest: &Path) -> Result<(), String> {
             .map_err(|e| format!("dest canonicalize 실패: {e}"))?
     } else {
         let parent = dest.parent().ok_or_else(|| "dest 부모 없음".to_string())?;
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("부모 생성 실패 {parent:?}: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("부모 생성 실패 {parent:?}: {e}"))?;
         let parent_real = parent
             .canonicalize()
             .map_err(|e| format!("parent canonicalize 실패: {e}"))?;
-        parent_real.join(dest.file_name().ok_or_else(|| "dest filename 없음".to_string())?)
+        parent_real.join(
+            dest.file_name()
+                .ok_or_else(|| "dest filename 없음".to_string())?,
+        )
     };
     if !probe.starts_with(&base_real) {
         return Err(format!("manifest path가 base 밖을 가리킴: {dest:?}"));
@@ -140,7 +178,7 @@ pub async fn check_update(cuo_dir: &str) -> Result<UpdateCheck, String> {
     let mut total_bytes = 0u64;
     for f in &manifest.files {
         let safe = sanitize_manifest_path(&f.path)?;
-        let local_path = cuo_dir.join(&safe);
+        let local_path = cuo_dir.join(&safe.fs_path);
         // 미존재 파일도 base 검증 (부모만 canonicalize)
         if let Some(parent) = local_path.parent() {
             if parent.exists() {
@@ -221,9 +259,14 @@ fn sha256_file(path: &Path) -> Result<String, String> {
 }
 
 /// 다운로드 + atomic apply. 진행률은 on_progress(bytes_done, total)로 콜백.
+///
+/// `allow_original_overwrite`: cuo_dir이 원본 CUO 폴더로 감지된 경우에만 의미.
+/// false면 원본 폴더 덮어쓰기를 거부한다 (IPC 오용 방어).
+/// UI는 사용자 확인을 거친 뒤에만 true로 호출한다.
 pub async fn apply_update<F>(
     cuo_dir: &str,
     check: &UpdateCheck,
+    allow_original_overwrite: bool,
     mut on_progress: F,
 ) -> Result<(), String>
 where
@@ -231,9 +274,27 @@ where
 {
     use futures_util::StreamExt;
 
+    // 폴더가 없으면 생성 (신규 설치 흐름 지원).
     let cuo_dir = PathBuf::from(cuo_dir);
+    if !cuo_dir.exists() {
+        std::fs::create_dir_all(&cuo_dir)
+            .map_err(|e| format!("CUO 폴더 생성 실패 {}: {e}", cuo_dir.display()))?;
+    }
     if !cuo_dir.is_dir() {
         return Err(format!("CUO 경로가 폴더가 아님: {}", cuo_dir.display()));
+    }
+
+    // 백엔드 가드: 원본 CUO 폴더로 판정되면 명시적 허용 없이는 거부.
+    if !allow_original_overwrite {
+        if let crate::paths::FolderKind::OriginalCuo =
+            crate::paths::detect_folder_kind(&cuo_dir.to_string_lossy())
+        {
+            return Err(
+                "ORIGINAL_CUO_BLOCKED: 원본 ClassicUO 폴더로 감지됨. \
+                 UI 확인을 거친 뒤 다시 시도하세요."
+                    .into(),
+            );
+        }
     }
 
     let client = reqwest::Client::builder()
@@ -246,16 +307,11 @@ where
     let mut bytes_done: u64 = 0;
     on_progress(0, total_bytes);
 
-    // base_url HTTPS 강제 (manifest 변조 시 http로 downgrade되는 케이스 차단)
-    if !check.manifest.base_url.to_ascii_lowercase().starts_with("https://") {
-        return Err("manifest base_url은 https://여야 합니다".into());
-    }
-
     // 1단계: 모든 파일을 .new로 다운로드 + 해시 검증
     let mut tmp_files: Vec<(PathBuf, PathBuf)> = Vec::new();
     for cf in &check.changed {
         let safe = sanitize_manifest_path(&cf.path)?;
-        let dest = cuo_dir.join(&safe);
+        let dest = cuo_dir.join(&safe.fs_path);
 
         // 부모 디렉터리 생성 + base 확인
         if let Some(parent) = dest.parent() {
@@ -270,7 +326,7 @@ where
             dest.extension().and_then(|s| s.to_str()).unwrap_or("")
         ));
 
-        let url = format!("{}{}", check.manifest.base_url, cf.path);
+        let url = build_manifest_file_url(&check.manifest.base_url, &safe)?;
         let resp = client
             .get(&url)
             .send()
@@ -377,6 +433,31 @@ fn cleanup_tmps(tmps: &[(PathBuf, PathBuf)]) {
     for (tmp, _) in tmps {
         let _ = std::fs::remove_file(tmp);
     }
+}
+
+/// 신규 설치용: manifest만 받아서 모든 파일을 Missing으로 표시.
+/// cuo_path가 비었거나 폴더가 아직 없을 때 호출.
+pub async fn fetch_manifest_as_install() -> Result<UpdateCheck, String> {
+    let manifest = fetch_manifest().await?;
+    let mut changed = Vec::with_capacity(manifest.files.len());
+    let mut total_bytes = 0u64;
+    for f in &manifest.files {
+        // 경로 sanitize는 apply 시점에서도 다시 함 — 여기서도 미리 검증해 일관성 확보.
+        let _ = sanitize_manifest_path(&f.path)?;
+        total_bytes += f.size;
+        changed.push(ChangedFile {
+            path: f.path.clone(),
+            size: f.size,
+            reason: ChangeReason::Missing,
+        });
+    }
+    Ok(UpdateCheck {
+        remote_version: manifest.version.clone(),
+        local_version: None,
+        changed,
+        total_bytes,
+        manifest,
+    })
 }
 
 async fn fetch_manifest() -> Result<UpdateManifest, String> {

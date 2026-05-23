@@ -7,7 +7,10 @@ type Props = {
   settings: Settings;
   onClose: () => void;
   onChange: (next: Settings) => void;
+  /** 기존 프로필 편집 */
   onEdit: (profileId: string) => void;
+  /** 새 프로필 드래프트 편집 시작 (저장 누를 때까지 settings 미반영) */
+  onCreate: (draft: Profile) => void;
 };
 
 export function ManageProfilesModal({
@@ -16,6 +19,7 @@ export function ManageProfilesModal({
   onClose,
   onChange,
   onEdit,
+  onCreate,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -31,9 +35,9 @@ export function ManageProfilesModal({
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [settings.profiles]);
 
-  const onCreate = () => {
+  const onCreateClick = () => {
     const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-    const newProfile: Profile = {
+    const draft: Profile = {
       id,
       name: `New Profile ${settings.profiles.length + 1}`,
       uo_path: "",
@@ -47,12 +51,8 @@ export function ManageProfilesModal({
         active_account_id: null,
       },
     };
-    onChange({
-      ...settings,
-      profiles: [...settings.profiles, newProfile],
-      active_profile_id: settings.active_profile_id ?? id,
-    });
-    onEdit(id);
+    // settings 변경 안 함 — EditProfileModal에서 저장 누를 때 부모가 upsert.
+    onCreate(draft);
   };
 
   const onSetActive = (id: string) => {
@@ -82,7 +82,7 @@ export function ManageProfilesModal({
       title="프로필 관리"
       width={780}
       headerActions={
-        <button className="btn-primary btn-primary-sm" onClick={onCreate}>
+        <button className="btn-primary btn-primary-sm" onClick={onCreateClick}>
           + New Profile
         </button>
       }

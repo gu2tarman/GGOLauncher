@@ -4,6 +4,7 @@ import { api } from "./api";
 import { NoticeBoard } from "./NoticeBoard";
 import { ManageProfilesModal } from "./ManageProfilesModal";
 import { EditProfileModal } from "./EditProfileModal";
+import { Modal } from "./Modal";
 import { PluginPanel } from "./PluginPanel";
 import type {
   LauncherManifest,
@@ -43,6 +44,8 @@ type UpdateState =
   | { kind: "checking" }
   | { kind: "uptodate" }
   | { kind: "available"; version: string }
+  // cuo_path 미설정 — manifest는 받았고 사용자가 "설치" 버튼 누르면 위치 선택부터 시작
+  | { kind: "not_installed"; version: string }
   | { kind: "downloading"; percent: number }
   | { kind: "ready" }
   | { kind: "error"; message: string };
@@ -64,6 +67,8 @@ function App() {
   const [selfUpdate, setSelfUpdate] = useState<SelfUpdate>({ kind: "idle" });
   const [manageOpen, setManageOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // 새 프로필 드래프트 — 저장 누르기 전까지 settings 미반영. id는 미리 생성됨.
+  const [draftProfile, setDraftProfile] = useState<Profile | null>(null);
   const [ggoceVersion, setGgoceVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,12 +82,24 @@ function App() {
   useEffect(() => {
     const activeId = settings?.active_profile_id;
     const cuoPath = settings?.profiles.find((p) => p.id === activeId)?.cuo_path;
-    if (!cuoPath) {
-      setUpdateState({ kind: "uptodate" });
-      return;
-    }
     let cancelled = false;
     setUpdateState({ kind: "checking" });
+    if (!cuoPath) {
+      // cuo_path 미지정 — manifest만 받아서 신규 설치 안내
+      api
+        .cuoFetchManifestForInstall()
+        .then((res) => {
+          if (cancelled) return;
+          pendingCheck.current = res;
+          setUpdateState({ kind: "not_installed", version: res.remote_version });
+        })
+        .catch((e) => {
+          if (!cancelled) setUpdateState({ kind: "error", message: String(e) });
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     api
       .cuoCheckUpdate(cuoPath)
       .then((res) => {
@@ -253,21 +270,102 @@ function App() {
     persistSettings({ ...settings, plugins });
   };
 
-  // ── 업데이트 버튼 ─────────────────────────────────
-  const onUpdateClick = async () => {
-    if (updateState.kind !== "available") return;
+  // ── 설치/업데이트 모달 상태 ────────────────────────
+  // 신규 설치 위치 선택 모달 — 부모 폴더 + 하위 폴더명 분리 입력
+  const [installPickerOpen, setInstallPickerOpen] = useState(false);
+  const [installParent, setInstallParent] = useState<string>("");
+  const [installSubfolder, setInstallSubfolder] =
+    useState<string>("ClassicUO-GGOCE");
+  // 원본 CUO 덮어쓰기 확인 모달
+  const [originalCuoConfirm, setOriginalCuoConfirm] = useState<{
+    cuoPath: string;
+  } | null>(null);
+
+  // OS path separator 감지 (Windows = \, 그 외 = /)
+  const pathSep = (p: string) => (p.includes("\\") ? "\\" : "/");
+  const joinPath = (parent: string, sub: string) => {
+    if (!parent) return sub;
+    const sep = pathSep(parent);
+    const cleanParent = parent.replace(/[\\/]+$/, "");
+    return `${cleanParent}${sep}${sub}`;
+  };
+  const installFinalPath =
+    installParent && installSubfolder.trim()
+      ? joinPath(installParent, installSubfolder.trim())
+      : "";
+  // 폴더명 sanitize — 파일시스템 invalid 문자 차단
+  const subfolderInvalid =
+    installSubfolder.trim().length === 0 ||
+    /[\\/:*?"<>|]/.test(installSubfolder) ||
+    installSubfolder.trim() === "." ||
+    installSubfolder.trim() === "..";
+
+  // 실제 다운로드 실행 — pendingCheck + cuoPath + allow 플래그로 동작
+  const runApply = async (cuoPath: string, allowOriginalOverwrite: boolean) => {
     const check = pendingCheck.current;
-    const cuoPath = profile?.cuo_path ?? "";
-    if (!check || !cuoPath) return;
+    if (!check) return;
     setUpdateState({ kind: "downloading", percent: 0 });
     try {
-      await api.cuoApplyUpdate(cuoPath, check);
-      // 적용 완료 → 재체크 (모두 일치하면 uptodate)
+      await api.cuoApplyUpdate(cuoPath, check, allowOriginalOverwrite);
       pendingCheck.current = null;
       setUpdateState({ kind: "uptodate" });
     } catch (e) {
       setUpdateState({ kind: "error", message: String(e) });
     }
+  };
+
+  // ── 업데이트 버튼 ─────────────────────────────────
+  const onUpdateClick = async () => {
+    // 신규 설치 — 위치 선택 모달 오픈 (기본: 런처 디렉터리)
+    if (updateState.kind === "not_installed") {
+      try {
+        const dir = await api.getLauncherDir();
+        setInstallParent(dir ?? "");
+      } catch {
+        setInstallParent("");
+      }
+      setInstallSubfolder("ClassicUO-GGOCE");
+      setInstallPickerOpen(true);
+      return;
+    }
+
+    if (updateState.kind !== "available") return;
+    const cuoPath = profile?.cuo_path ?? "";
+    if (!cuoPath || !pendingCheck.current) return;
+
+    // 원본 CUO 폴더 감지 → 확인 모달
+    try {
+      const kind = await api.detectFolderKind(cuoPath);
+      if (kind.kind === "original_cuo") {
+        setOriginalCuoConfirm({ cuoPath });
+        return;
+      }
+    } catch (e) {
+      console.warn("detect_folder_kind 실패, 그대로 진행:", e);
+    }
+    await runApply(cuoPath, false);
+  };
+
+  // 신규 설치 — 사용자가 위치 선택 완료
+  const onInstallTo = async (targetPath: string) => {
+    if (!settings || !profile) return;
+    setInstallPickerOpen(false);
+    // 프로필의 cuo_path 갱신 + 저장
+    const updatedProfile: Profile = { ...profile, cuo_path: targetPath };
+    const next: Settings = {
+      ...settings,
+      profiles: settings.profiles.map((p) =>
+        p.id === profile.id ? updatedProfile : p
+      ),
+    };
+    persistSettings(next);
+    // 빈 폴더 또는 새 폴더 → 원본 CUO 아님, allow_original_overwrite=false 면 충분
+    await runApply(targetPath, false);
+  };
+
+  const onPickParentFolder = async () => {
+    const picked = await api.cuoSelectDirectory(installParent || undefined);
+    if (picked) setInstallParent(picked);
   };
   let updateLabel: string;
   let updateClass: string;
@@ -285,6 +383,10 @@ function App() {
       break;
     case "available":
       updateLabel = `업데이트 다운로드 v${updateState.version}`;
+      updateClass = "btn-update-available";
+      break;
+    case "not_installed":
+      updateLabel = `GGO CE 설치 v${updateState.version}`;
       updateClass = "btn-update-available";
       break;
     case "downloading":
@@ -484,26 +586,207 @@ function App() {
             onClose={() => setManageOpen(false)}
             onChange={persistSettings}
             onEdit={(id) => setEditingId(id)}
+            onCreate={(draft) => setDraftProfile(draft)}
           />
           <EditProfileModal
-            open={editingId !== null}
+            open={editingId !== null || draftProfile !== null}
             profile={
-              editingId
+              draftProfile
+                ? draftProfile
+                : editingId
                 ? settings.profiles.find((p) => p.id === editingId) ?? null
                 : null
             }
-            onClose={() => setEditingId(null)}
+            onClose={() => {
+              setEditingId(null);
+              setDraftProfile(null);
+            }}
             onSave={(updated) => {
+              const exists = settings.profiles.some((p) => p.id === updated.id);
+              const profiles = exists
+                ? settings.profiles.map((p) =>
+                    p.id === updated.id ? updated : p
+                  )
+                : [...settings.profiles, updated];
               const next: Settings = {
                 ...settings,
-                profiles: settings.profiles.map((p) =>
-                  p.id === updated.id ? updated : p
-                ),
+                profiles,
+                active_profile_id:
+                  settings.active_profile_id ?? updated.id,
               };
               persistSettings(next);
+              setDraftProfile(null);
             }}
           />
         </>
+      )}
+
+      {/* 신규 설치 위치 선택 모달 — 부모 폴더 + 하위 폴더명 */}
+      {installPickerOpen && (
+        <Modal
+          open={installPickerOpen}
+          onClose={() => setInstallPickerOpen(false)}
+          title="GGO CE 설치 위치"
+          width={560}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <p style={{ margin: 0, lineHeight: 1.5 }}>
+              부모 폴더 안에 하위 폴더를 만들고 그 안에 GGO CE 본체를 설치합니다.
+              기본값은 런처가 있는 위치 옆입니다.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label
+                style={{ fontSize: 12, opacity: 0.8 }}
+                htmlFor="install-parent"
+              >
+                부모 폴더
+              </label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  id="install-parent"
+                  className="text-input"
+                  style={{ flex: 1, fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12 }}
+                  value={installParent}
+                  onChange={(e) => setInstallParent(e.target.value)}
+                  placeholder="C:\\..."
+                />
+                <button className="btn-action" onClick={onPickParentFolder}>
+                  찾기
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label
+                style={{ fontSize: 12, opacity: 0.8 }}
+                htmlFor="install-subfolder"
+              >
+                하위 폴더 이름
+              </label>
+              <input
+                id="install-subfolder"
+                className="text-input"
+                value={installSubfolder}
+                onChange={(e) => setInstallSubfolder(e.target.value)}
+                placeholder="ClassicUO-GGOCE"
+              />
+              {subfolderInvalid && (
+                <span style={{ fontSize: 11, color: "#f88" }}>
+                  유효하지 않은 폴더명입니다 (특수문자 \\ / : * ? " &lt; &gt; | 사용 불가)
+                </span>
+              )}
+            </div>
+
+            <div
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                padding: "10px 12px",
+                borderRadius: 6,
+              }}
+            >
+              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
+                최종 설치 경로
+              </div>
+              <div
+                style={{
+                  fontFamily: "ui-monospace, Consolas, monospace",
+                  fontSize: 12,
+                  wordBreak: "break-all",
+                }}
+              >
+                {installFinalPath || "—"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                marginTop: 4,
+              }}
+            >
+              <button
+                className="btn-action"
+                onClick={() => setInstallPickerOpen(false)}
+              >
+                취소
+              </button>
+              <button
+                className="btn-primary btn-primary-sm"
+                disabled={
+                  !installParent || subfolderInvalid || !installFinalPath
+                }
+                onClick={() => {
+                  setInstallPickerOpen(false);
+                  onInstallTo(installFinalPath);
+                }}
+              >
+                설치
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 원본 CUO 덮어쓰기 확인 모달 */}
+      {originalCuoConfirm && (
+        <Modal
+          open={originalCuoConfirm !== null}
+          onClose={() => setOriginalCuoConfirm(null)}
+          title="원본 ClassicUO 폴더 감지"
+          width={560}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ margin: 0, lineHeight: 1.5 }}>
+              선택한 폴더는 GGO CE가 아닌 <b>원본 ClassicUO</b> 폴더로 보입니다.
+              계속 진행하면 ClassicUO.exe와 일부 DLL이 GGO CE 빌드로
+              교체됩니다. (기존 파일은 같은 위치에 <code>.bak</code>로
+              백업됩니다.)
+            </p>
+            <div
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                padding: "10px 12px",
+                borderRadius: 6,
+                fontFamily: "ui-monospace, Consolas, monospace",
+                fontSize: 12,
+                wordBreak: "break-all",
+              }}
+            >
+              {originalCuoConfirm.cuoPath}
+            </div>
+            <p style={{ margin: 0, fontSize: 13, opacity: 0.8 }}>
+              계속 진행할까요?
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                marginTop: 4,
+              }}
+            >
+              <button
+                className="btn-action"
+                onClick={() => setOriginalCuoConfirm(null)}
+              >
+                취소
+              </button>
+              <button
+                className="btn-action btn-action-danger"
+                onClick={async () => {
+                  const path = originalCuoConfirm.cuoPath;
+                  setOriginalCuoConfirm(null);
+                  await runApply(path, true);
+                }}
+              >
+                계속 진행 (덮어쓰기)
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

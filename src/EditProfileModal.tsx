@@ -27,6 +27,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const [detecting, setDetecting] = useState(false);
   // 각 계정 비밀번호 show/hide 상태 (id → bool)
   const [showPw, setShowPw] = useState<Record<string, boolean>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile) {
@@ -174,8 +175,6 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   };
 
   const canSave = draft.name.trim().length > 0 && draft.server.address.trim().length > 0;
-
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSaveClick = async () => {
     if (!canSave || !draft) return;

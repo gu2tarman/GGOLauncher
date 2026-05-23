@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  FolderKind,
   LauncherManifest,
   NoticeBoard,
   PathInfo,
@@ -22,6 +23,8 @@ export const api = {
     invoke<string | null>("detect_client_version", { uoPath }),
   detectGgoceVersion: (cuoPath: string) =>
     invoke<string | null>("detect_ggoce_version", { cuoPath }),
+  detectFolderKind: (path: string) => invoke<FolderKind>("detect_folder_kind", { path }),
+  getLauncherDir: () => invoke<string | null>("get_launcher_dir"),
   clientSelectDirectory: (startDir?: string) =>
     invoke<string | null>("client_select_directory", { startDir: startDir ?? null }),
   cuoSelectDirectory: (startDir?: string) =>
@@ -39,8 +42,18 @@ export const api = {
   decryptPassword: (stored: string) => invoke<string>("decrypt_password", { stored }),
 
   cuoCheckUpdate: (cuoPath: string) => invoke<UpdateCheck>("cuo_check_update", { cuoPath }),
-  cuoApplyUpdate: (cuoPath: string, check: UpdateCheck) =>
-    invoke<void>("cuo_apply_update", { cuoPath, check }),
+  cuoFetchManifestForInstall: () =>
+    invoke<UpdateCheck>("cuo_fetch_manifest_for_install"),
+  cuoApplyUpdate: (
+    cuoPath: string,
+    check: UpdateCheck,
+    allowOriginalOverwrite: boolean,
+  ) =>
+    invoke<void>("cuo_apply_update", {
+      cuoPath,
+      check,
+      allowOriginalOverwrite,
+    }),
 
   launcherCheckUpdate: () => invoke<SelfUpdateCheck>("launcher_check_update"),
   launcherApplyUpdate: (manifest: LauncherManifest) =>
