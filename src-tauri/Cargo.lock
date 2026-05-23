@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "ggo-launcher"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",

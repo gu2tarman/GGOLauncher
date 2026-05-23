@@ -308,7 +308,8 @@ where
     on_progress(0, total_bytes);
 
     // 1단계: 모든 파일을 .new로 다운로드 + 해시 검증
-    let mut tmp_files: Vec<(PathBuf, PathBuf)> = Vec::new();
+    // TmpGuard로 추적 — 중간에 에러가 나면 Drop이 받은 .new를 전부 삭제.
+    let mut tmp_guard = TmpGuard::new();
     for cf in &check.changed {
         let safe = sanitize_manifest_path(&cf.path)?;
         let dest = cuo_dir.join(&safe.fs_path);
@@ -370,8 +371,10 @@ where
             ));
         }
 
-        tmp_files.push((tmp, dest));
+        tmp_guard.push(tmp, dest);
     }
+    // 1단계 통과 → 2단계로 .new들의 소유권 이전. Drop은 cleanup 안 함.
+    let tmp_files = tmp_guard.take();
 
     // 2단계: backup → rename, 중간 실패 시 rollback.
     // 기존 파일을 .bak로 rename(같은 디렉터리, atomic) 후 .new를 원본 자리로 rename.
@@ -432,6 +435,37 @@ fn rollback(applied: &[(PathBuf, Option<PathBuf>, PathBuf)]) {
 fn cleanup_tmps(tmps: &[(PathBuf, PathBuf)]) {
     for (tmp, _) in tmps {
         let _ = std::fs::remove_file(tmp);
+    }
+}
+
+/// 다운로드된 .new 파일들을 추적해서 commit 안 되면 Drop 시 자동 삭제.
+/// 1단계(다운로드) 중간 어디서 에러가 나도 부분 파일이 폴더에 남지 않게 함.
+struct TmpGuard {
+    files: Vec<(PathBuf, PathBuf)>,
+    committed: bool,
+}
+
+impl TmpGuard {
+    fn new() -> Self {
+        Self { files: Vec::new(), committed: false }
+    }
+    fn push(&mut self, tmp: PathBuf, dest: PathBuf) {
+        self.files.push((tmp, dest));
+    }
+    /// 2단계로 넘기기 위해 소유권 회수. 이후 Drop은 cleanup 안 함.
+    fn take(mut self) -> Vec<(PathBuf, PathBuf)> {
+        self.committed = true;
+        std::mem::take(&mut self.files)
+    }
+}
+
+impl Drop for TmpGuard {
+    fn drop(&mut self) {
+        if !self.committed {
+            for (tmp, _) in &self.files {
+                let _ = std::fs::remove_file(tmp);
+            }
+        }
     }
 }
 

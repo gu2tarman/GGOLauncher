@@ -28,6 +28,14 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   // 각 계정 비밀번호 show/hide 상태 (id → bool)
   const [showPw, setShowPw] = useState<Record<string, boolean>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [multiWarning, setMultiWarning] = useState<string | null>(null);
+
+  // multiWarning 3초 자동 닫힘
+  useEffect(() => {
+    if (!multiWarning) return;
+    const t = setTimeout(() => setMultiWarning(null), 3000);
+    return () => clearTimeout(t);
+  }, [multiWarning]);
 
   useEffect(() => {
     if (!profile) {
@@ -124,6 +132,10 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         : d
     );
 
+  // 계정의 MULTI 포함 여부 해석 (레거시: 인덱스<6이면 true).
+  const isMultiEnabled = (a: Account, i: number) =>
+    a.multi_enabled == null ? i < 6 : a.multi_enabled === true;
+
   const addAccount = () =>
     setDraft((d) => {
       if (!d) return d;
@@ -133,10 +145,15 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       const defaultPw =
         d.server.accounts.find((a) => a.password_encrypted.trim().length > 0)
           ?.password_encrypted ?? "";
+      // 신규 계정의 multi_enabled 기본값:
+      //   - 현재 계정 수가 6 미만이면 true (자동 포함)
+      //   - 6 이상이면 false (사용자가 명시적으로 선택)
+      const currentCount = d.server.accounts.length;
       const newAcc: Account = {
         id,
         username: "",
         password_encrypted: defaultPw,
+        multi_enabled: currentCount < 6,
       };
       return {
         ...d,
@@ -147,6 +164,31 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         },
       };
     });
+
+  // MULTI 체크박스 토글 — 최대 6개 cap.
+  const toggleMulti = (id: string, want: boolean) => {
+    setDraft((d) => {
+      if (!d) return d;
+      // 현재 체크된 수 계산 (레거시 정책 포함)
+      const currentCount = d.server.accounts.filter((a, i) =>
+        isMultiEnabled(a, i)
+      ).length;
+      if (want && currentCount >= 6) {
+        setMultiWarning("MULTI LOGIN은 최대 6개까지만 선택할 수 있습니다.");
+        return d;
+      }
+      setMultiWarning(null);
+      return {
+        ...d,
+        server: {
+          ...d.server,
+          accounts: d.server.accounts.map((a) =>
+            a.id === id ? { ...a, multi_enabled: want } : a
+          ),
+        },
+      };
+    });
+  };
 
   const removeAccount = (id: string) =>
     setDraft((d) => {
@@ -351,9 +393,18 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
             "+ 계정 추가"로 MULTI LOGIN용 계정을 등록할 수 있습니다.
           </div>
         )}
+        {draft.server.accounts.length > 0 && (
+          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+            MULTI: {draft.server.accounts.filter((a, i) => isMultiEnabled(a, i)).length}/6 선택됨
+            {multiWarning && (
+              <span style={{ color: "#f88", marginLeft: 8 }}>{multiWarning}</span>
+            )}
+          </div>
+        )}
         {draft.server.accounts.map((acc, i) => {
           const isActive = draft.server.active_account_id === acc.id;
           const reveal = !!showPw[acc.id];
+          const multiOn = isMultiEnabled(acc, i);
           return (
             <div key={acc.id} className={`account-row ${isActive ? "is-active" : ""}`}>
               <label className="account-radio">
@@ -363,6 +414,17 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
                   checked={isActive}
                   onChange={() => setActiveAccount(acc.id)}
                   title="기본(단일 PLAY 시 사용)"
+                />
+              </label>
+              <label
+                className="account-radio"
+                title="MULTI LOGIN 포함 여부 (최대 6개)"
+                style={{ marginLeft: -4 }}
+              >
+                <input
+                  type="checkbox"
+                  checked={multiOn}
+                  onChange={(e) => toggleMulti(acc.id, e.target.checked)}
                 />
               </label>
               <div className="account-fields">

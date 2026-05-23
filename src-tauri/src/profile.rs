@@ -45,6 +45,10 @@ pub struct Account {
     /// 화면 표시용 별명 (예: "메인 캐릭"). 없으면 username 표시.
     #[serde(default)]
     pub display_name: Option<String>,
+    /// MULTI LOGIN 대상 포함 여부. null/없음 = 레거시(아래 기본 정책 적용).
+    /// 기본 정책: 프로필 내 첫 6개 계정 true, 7번째부터 false.
+    #[serde(default)]
+    pub multi_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

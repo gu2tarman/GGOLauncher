@@ -6,6 +6,7 @@ mod plugins;
 mod profile;
 mod self_updater;
 mod settings;
+mod sidebar;
 mod updater;
 
 use notice::NoticeBoard;
@@ -202,6 +203,12 @@ async fn fetch_notice() -> Result<NoticeBoard, String> {
     notice::fetch().await
 }
 
+// ── 사이드바 ──────────────────────────────────────────────
+#[tauri::command]
+async fn fetch_sidebar() -> Result<sidebar::Sidebar, String> {
+    sidebar::fetch().await
+}
+
 // ── CUO 업데이트 체크 ─────────────────────────────────────
 #[tauri::command]
 async fn cuo_check_update(cuo_path: String) -> Result<updater::UpdateCheck, String> {
@@ -292,6 +299,7 @@ pub fn run() {
             plugin_select_file,
             import_plugin_from_zip,
             fetch_notice,
+            fetch_sidebar,
             cuo_check_update,
             cuo_fetch_manifest_for_install,
             cuo_apply_update,

@@ -162,6 +162,7 @@ fn is_default_version(v: &str) -> bool {
 #[cfg(target_os = "windows")]
 fn read_pe_file_version(exe: &Path) -> Option<String> {
     // Win32 API 직접 호출 — PowerShell spawn (300~500ms + 콘솔 깜빡임) 대체.
+    // 우선순위: FileVersion (0.0.0.0 아니면 채택) → ProductVersion 폴백
     use std::ffi::OsStr;
     use std::iter::once;
     use std::os::windows::ffi::OsStrExt;
@@ -205,26 +206,33 @@ fn read_pe_file_version(exe: &Path) -> Option<String> {
     if ok == 0 || info_ptr.is_null() {
         return None;
     }
-    // 안전 검증: 반환 길이가 VS_FIXEDFILEINFO 크기 이상이어야 함.
     if (info_len as usize) < std::mem::size_of::<VS_FIXEDFILEINFO>() {
         return None;
     }
     let info = unsafe { &*(info_ptr as *const VS_FIXEDFILEINFO) };
-    // signature 확인 (VS_FFI_SIGNATURE = 0xFEEF04BD)
     if info.dwSignature != 0xFEEF_04BD {
         return None;
     }
-    let major = (info.dwFileVersionMS >> 16) & 0xFFFF;
-    let minor = info.dwFileVersionMS & 0xFFFF;
-    let build = (info.dwFileVersionLS >> 16) & 0xFFFF;
-    let rev = info.dwFileVersionLS & 0xFFFF;
-
-    let version = format!("{major}.{minor}.{build}.{rev}");
-    if version == "0.0.0.0" {
-        None
-    } else {
-        Some(version)
+    // FileVersion 시도
+    let file_ver = format_version(info.dwFileVersionMS, info.dwFileVersionLS);
+    if file_ver != "0.0.0.0" {
+        return Some(file_ver);
     }
+    // 폴백: ProductVersion (FileVersion이 0.0.0.0인 빌드 케이스)
+    let prod_ver = format_version(info.dwProductVersionMS, info.dwProductVersionLS);
+    if prod_ver != "0.0.0.0" {
+        return Some(prod_ver);
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn format_version(ms: u32, ls: u32) -> String {
+    let major = (ms >> 16) & 0xFFFF;
+    let minor = ms & 0xFFFF;
+    let build = (ls >> 16) & 0xFFFF;
+    let rev = ls & 0xFFFF;
+    format!("{major}.{minor}.{build}.{rev}")
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -6,6 +6,7 @@ import type {
   PathInfo,
   SelfUpdateCheck,
   Settings,
+  Sidebar,
   UpdateCheck,
 } from "./types";
 
@@ -17,6 +18,7 @@ export const api = {
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
 
   fetchNotice: () => invoke<NoticeBoard>("fetch_notice"),
+  fetchSidebar: () => invoke<Sidebar>("fetch_sidebar"),
 
   inspectPath: (path: string) => invoke<PathInfo>("inspect_path", { path }),
   detectClientVersion: (uoPath: string) =>

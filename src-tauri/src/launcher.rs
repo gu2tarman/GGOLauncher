@@ -14,7 +14,16 @@ pub fn launch(profile_id: &str, account_override: Option<&Account>) -> Result<()
     Ok(())
 }
 
-/// MULTI LOGIN — 프로필 안의 계정 N개를 순차 spawn.
+/// 계정의 multi_enabled 정책 해석. None(레거시)이면 인덱스 기반 기본값 적용:
+/// 첫 6개 = true, 7번째부터 = false.
+fn is_account_multi_enabled(account: &Account, index: usize) -> bool {
+    match account.multi_enabled {
+        Some(v) => v,
+        None => index < 6,
+    }
+}
+
+/// MULTI LOGIN — 프로필 안의 multi_enabled 계정만 순차 spawn.
 /// 각 spawn 사이 `delay_ms` 만큼 대기 (서버의 동일 IP 연속 접속 거부 방지).
 /// async: tokio::sleep 사용해서 Tauri IPC/webview 스레드 안 막음 (안 그러면 응답 없음).
 pub async fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, String> {
@@ -25,8 +34,25 @@ pub async fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, Stri
         return Err("등록된 계정이 없습니다. Edit Profile에서 계정을 추가해주세요.".to_string());
     }
 
+    // multi_enabled 필터 + 최대 6개 cap (UI 우회 방어).
+    let selected: Vec<&Account> = profile
+        .server
+        .accounts
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| is_account_multi_enabled(a, *i))
+        .map(|(_, a)| a)
+        .take(6)
+        .collect();
+
+    if selected.is_empty() {
+        return Err(
+            "MULTI LOGIN 대상 계정이 없습니다. Edit Profile에서 계정을 선택해주세요.".to_string(),
+        );
+    }
+
     let mut count = 0usize;
-    for (i, account) in profile.server.accounts.iter().enumerate() {
+    for (i, account) in selected.iter().enumerate() {
         if i > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }

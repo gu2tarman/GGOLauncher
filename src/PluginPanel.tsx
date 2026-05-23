@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import type { PluginEntry } from "./types";
 
@@ -24,10 +24,17 @@ const NICKNAMES: Record<string, string> = {
   classicassist: "클어시",
 };
 
-function displayNameOf(path: string): string {
+function autoNameOf(path: string): string {
   const stem = stemOf(path);
   const key = stem.toLowerCase();
   return NICKNAMES[key] ?? stem;
+}
+
+/** PluginEntry → 화면 표시명. display_name이 있으면 우선. */
+function displayNameOfEntry(p: PluginEntry): string {
+  const dn = p.display_name?.trim();
+  if (dn) return dn;
+  return autoNameOf(p.path);
 }
 
 function typeOf(path: string): "dll" | "exe" | "?" {
@@ -43,6 +50,39 @@ export function PluginPanel({ plugins, onChange }: Props) {
     newList.map((p, i) => ({ ...p, enabled: selectIdx === i }));
 
   const activeIdx = plugins.findIndex((p) => p.enabled);
+
+  // 인라인 이름 편집 상태
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<string>("");
+  const editInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editingIdx !== null && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingIdx]);
+
+  const startEdit = (i: number) => {
+    setEditingIdx(i);
+    setEditDraft(plugins[i].display_name ?? autoNameOf(plugins[i].path));
+  };
+  const commitEdit = () => {
+    if (editingIdx === null) return;
+    const trimmed = editDraft.trim();
+    const next = plugins.map((p, i) =>
+      i === editingIdx
+        ? {
+            ...p,
+            // 빈 문자열이면 별명 제거 (자동 이름으로 폴백)
+            display_name: trimmed.length > 0 ? trimmed : null,
+          }
+        : p
+    );
+    onChange(next);
+    setEditingIdx(null);
+  };
+  const cancelEdit = () => setEditingIdx(null);
 
   // 불변식 보강: 플러그인이 있는데 아무도 활성 아니면 첫 번째 자동 선택
   useEffect(() => {
@@ -92,7 +132,7 @@ export function PluginPanel({ plugins, onChange }: Props) {
     if (!target) return;
     if (
       !confirm(
-        `"${displayNameOf(target.path)}" 제거할까요?\n(파일 자체는 삭제되지 않습니다)`
+        `"${displayNameOfEntry(target)}" 제거할까요?\n(파일 자체는 삭제되지 않습니다)`
       )
     )
       return;
@@ -111,7 +151,7 @@ export function PluginPanel({ plugins, onChange }: Props) {
         <span>
           플러그인
           {activeIdx >= 0 && (
-            <span className="plugin-count">{displayNameOf(plugins[activeIdx].path)}</span>
+            <span className="plugin-count">{displayNameOfEntry(plugins[activeIdx])}</span>
           )}
         </span>
         <div className="panel-actions">
@@ -153,7 +193,53 @@ export function PluginPanel({ plugins, onChange }: Props) {
                 <span className={`plugin-type plugin-type-${typeOf(plugin.path)}`}>
                   {typeOf(plugin.path).toUpperCase()}
                 </span>
-                <span className="plugin-name">{displayNameOf(plugin.path)}</span>
+                {editingIdx === i ? (
+                  <input
+                    ref={editInputRef}
+                    className="text-input"
+                    style={{ flex: 1, fontSize: 12, padding: "2px 6px" }}
+                    value={editDraft}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={commitEdit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitEdit();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        cancelEdit();
+                      }
+                    }}
+                    placeholder={autoNameOf(plugin.path)}
+                  />
+                ) : (
+                  <span
+                    className="plugin-name"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      startEdit(i);
+                    }}
+                    title="더블클릭으로 이름 수정"
+                    style={{ cursor: "text" }}
+                  >
+                    {displayNameOfEntry(plugin)}
+                  </span>
+                )}
+                {editingIdx !== i && (
+                  <button
+                    className="btn-plugin-remove"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startEdit(i);
+                    }}
+                    title="이름 수정"
+                    aria-label="이름 수정"
+                    style={{ fontSize: 11 }}
+                  >
+                    ✎
+                  </button>
+                )}
                 <button
                   className="btn-plugin-remove"
                   onClick={(e) => {

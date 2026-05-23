@@ -12,6 +12,8 @@ export interface Account {
   username: string;
   password_encrypted: string;
   display_name?: string | null;
+  /** MULTI LOGIN 포함 여부. null/undefined = 레거시(인덱스<6이면 true) */
+  multi_enabled?: boolean | null;
 }
 
 export interface ServerConfig {
@@ -37,6 +39,8 @@ export interface Profile {
 export interface PluginEntry {
   path: string;
   enabled: boolean;
+  /** 표시용 별명. 없으면 path 파일명 사용 */
+  display_name?: string | null;
 }
 
 export interface UiSettings {
@@ -66,6 +70,21 @@ export interface Notice {
 export interface NoticeBoard {
   margo: Notice[];
   ggouo: Notice[];
+}
+
+// ── Sidebar ─────────────────────────────────────────────
+export interface SidebarLink {
+  label: string;
+  url?: string | null;
+}
+
+export interface SidebarGroup {
+  label: string;
+  buttons: SidebarLink[];
+}
+
+export interface Sidebar {
+  groups: SidebarGroup[];
 }
 
 // ── Paths ──────────────────────────────────────────────

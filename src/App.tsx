@@ -11,8 +11,34 @@ import type {
   PluginEntry,
   Profile,
   Settings,
+  Sidebar,
   UpdateCheck,
 } from "./types";
+
+// fetch 실패 시 사용할 폴백 사이드바 (런처 초기 배포 시 박혀있던 값)
+const FALLBACK_SIDEBAR: Sidebar = {
+  groups: [
+    {
+      label: "MARGO",
+      buttons: [
+        { label: "Discord", url: "https://discord.gg/VGfYrJFXtH" },
+        { label: "Website", url: null },
+        { label: "오픈카톡", url: null },
+      ],
+    },
+    {
+      label: "GGO SUPPORT",
+      buttons: [
+        { label: "웹훅 발급소", url: "https://discord.gg/KQzHZsZ9eH" },
+        { label: "문의하기", url: "https://open.kakao.com/o/sA71kz5d" },
+      ],
+    },
+    {
+      label: "ORIGINAL CLASSICUO",
+      buttons: [{ label: "클래식유오", url: "https://www.classicuo.eu" }],
+    },
+  ],
+};
 
 type LinkButtonProps = { label: string; url?: string };
 
@@ -70,6 +96,22 @@ function App() {
   // 새 프로필 드래프트 — 저장 누르기 전까지 settings 미반영. id는 미리 생성됨.
   const [draftProfile, setDraftProfile] = useState<Profile | null>(null);
   const [ggoceVersion, setGgoceVersion] = useState<string | null>(null);
+  // 사이드바 — 원격 fetch, 실패 시 FALLBACK 사용
+  const [sidebar, setSidebar] = useState<Sidebar>(FALLBACK_SIDEBAR);
+
+  // 시작 시 1회 sidebar fetch
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .fetchSidebar()
+      .then((s) => {
+        if (!cancelled && s.groups?.length > 0) setSidebar(s);
+      })
+      .catch((e) => console.warn("[sidebar fetch]", e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     api
@@ -135,20 +177,29 @@ function App() {
     };
   }, []);
 
-  // 런처 자기 업데이트 체크 (시작 시 1회)
+  // 런처 자기 업데이트 체크 — 시작 시 1회 + 6시간마다 polling.
   useEffect(() => {
     let cancelled = false;
-    api
-      .launcherCheckUpdate()
-      .then((res) => {
-        if (cancelled) return;
-        if (res.update_available && res.manifest) {
-          setSelfUpdate({ kind: "available", manifest: res.manifest });
-        }
-      })
-      .catch((e) => console.error("[launcher check]", e));
+    const check = () => {
+      api
+        .launcherCheckUpdate()
+        .then((res) => {
+          if (cancelled) return;
+          if (res.update_available && res.manifest) {
+            setSelfUpdate((cur) =>
+              cur.kind === "idle"
+                ? { kind: "available", manifest: res.manifest! }
+                : cur
+            );
+          }
+        })
+        .catch((e) => console.warn("[launcher check]", e));
+    };
+    check();
+    const id = setInterval(check, 6 * 60 * 60 * 1000); // 6h
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, []);
 
@@ -196,7 +247,14 @@ function App() {
   const activeAccount = profile?.server.accounts.find(
     (a) => a.id === profile.server.active_account_id
   );
-  const canMultiLogin = canPlay && accountCount > 0;
+  // MULTI 대상 카운트 (레거시: 인덱스<6이면 true)
+  const multiCount = profile
+    ? profile.server.accounts.filter((a, i) => {
+        const v = a.multi_enabled;
+        return v == null ? i < 6 : v === true;
+      }).length
+    : 0;
+  const canMultiLogin = canPlay && multiCount > 0;
 
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -413,23 +471,18 @@ function App() {
           <div className="fan-made-note">* Unofficial fan-made launcher</div>
         </div>
 
-        <div className="btn-group">
-          <div className="btn-group-label">MARGO</div>
-          <LinkButton label="Discord" url="https://discord.gg/VGfYrJFXtH" />
-          <LinkButton label="Website" />
-          <LinkButton label="오픈카톡" />
-        </div>
-
-        <div className="btn-group">
-          <div className="btn-group-label">GGO SUPPORT</div>
-          <LinkButton label="웹훅 발급소" url="https://discord.gg/KQzHZsZ9eH" />
-          <LinkButton label="문의하기" url="https://open.kakao.com/o/sA71kz5d" />
-        </div>
-
-        <div className="btn-group">
-          <div className="btn-group-label">ORIGINAL CLASSICUO</div>
-          <LinkButton label="클래식유오" url="https://www.classicuo.eu" />
-        </div>
+        {sidebar.groups.map((g) => (
+          <div key={g.label} className="btn-group">
+            <div className="btn-group-label">{g.label}</div>
+            {g.buttons.map((b, i) => (
+              <LinkButton
+                key={`${b.label}-${i}`}
+                label={b.label}
+                url={b.url ?? undefined}
+              />
+            ))}
+          </div>
+        ))}
       </aside>
 
       {/* ── Right ────────────────────────── */}
@@ -496,14 +549,14 @@ function App() {
                 ? "프로필을 먼저 생성하세요"
                 : !hasActivePlugin
                 ? "플러그인을 먼저 등록·선택하세요"
-                : accountCount === 0
-                ? "계정을 먼저 등록하세요"
-                : `${accountCount}개 계정 순차 자동 로그인`
+                : multiCount === 0
+                ? "Edit Profile에서 MULTI 대상 계정을 선택하세요"
+                : `${multiCount}개 계정 순차 자동 로그인`
             }
           >
             MULTI LOGIN
             <div className="btn-sublabel">
-              {accountCount > 0 ? `${accountCount}개 계정 순차` : "계정 없음"}
+              {multiCount > 0 ? `${multiCount}개 선택 / ${accountCount}계정` : "선택 0개"}
             </div>
           </button>
           <button
@@ -564,6 +617,21 @@ function App() {
 
         {loadError && (
           <div className="error-toast">설정 로드 실패: {loadError}</div>
+        )}
+        {updateState.kind === "error" && (
+          <div
+            className="error-toast"
+            style={{ whiteSpace: "pre-wrap" }}
+            onClick={() => {
+              // 재체크 트리거 — settings를 그대로 다시 적용해서 useEffect 재발화
+              if (settings) setSettings({ ...settings });
+            }}
+          >
+            업데이트 처리 실패 — 클릭하면 재시도{"\n"}
+            <span style={{ fontSize: 11, opacity: 0.85, fontFamily: "ui-monospace, Consolas, monospace" }}>
+              {updateState.message}
+            </span>
+          </div>
         )}
         {launchError && (
           <div className="error-toast" onClick={() => setLaunchError(null)}>

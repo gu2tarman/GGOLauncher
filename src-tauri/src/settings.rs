@@ -28,6 +28,10 @@ pub struct PluginEntry {
     /// .dll / .exe / 추출된 ZIP 안의 entry .dll 경로
     pub path: String,
     pub enabled: bool,
+    /// 화면 표시용 별명. 없으면 path의 파일명 사용.
+    /// 같은 종류 다른 버전 플러그인 구분용.
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -73,6 +77,7 @@ fn migrate(s: &mut Settings) {
                 username: std::mem::take(&mut p.server.username),
                 password_encrypted: std::mem::take(&mut p.server.password_encrypted),
                 display_name: None,
+                multi_enabled: Some(true),
             });
             p.server.active_account_id = Some(id);
         }
