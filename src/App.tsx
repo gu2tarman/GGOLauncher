@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { NoticeBoard } from "./NoticeBoard";
@@ -97,8 +98,15 @@ function App() {
   // 새 프로필 드래프트 — 저장 누르기 전까지 settings 미반영. id는 미리 생성됨.
   const [draftProfile, setDraftProfile] = useState<Profile | null>(null);
   const [ggoceVersion, setGgoceVersion] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   // 사이드바 — 원격 fetch, 실패 시 FALLBACK 사용
   const [sidebar, setSidebar] = useState<Sidebar>(FALLBACK_SIDEBAR);
+
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch((e) => console.warn("[app version]", e));
+  }, []);
 
   // 시작 시 1회 sidebar fetch
   useEffect(() => {
@@ -245,9 +253,6 @@ function App() {
   const hasActivePlugin = !!settings?.plugins.find((p) => p.enabled);
   const canPlay = hasProfile && hasActivePlugin;
   const accountCount = profile?.server.accounts.length ?? 0;
-  const activeAccount = profile?.server.accounts.find(
-    (a) => a.id === profile.server.active_account_id
-  );
   // MULTI 대상 카운트 (레거시: 인덱스<6이면 true)
   const multiCount = profile
     ? profile.server.accounts.filter((a, i) => {
@@ -598,8 +603,7 @@ function App() {
                 {profile ? profile.name : "프로필 없음"}
                 {profile && accountCount > 0 && (
                   <span className="profile-account-pill">
-                    {activeAccount?.username || "계정 미선택"}
-                    {accountCount > 1 && ` · 총 ${accountCount}계정`}
+                    MULTI {multiCount}/{accountCount}계정
                   </span>
                 )}
               </div>
@@ -625,6 +629,10 @@ function App() {
           <NoticeBoard source="margo" title="Margo 공지" />
           <NoticeBoard source="ggouo" title="GGOUO 공지" />
         </section>
+
+        {appVersion && (
+          <div className="app-version-badge">Launcher v{appVersion}</div>
+        )}
 
         {loadError && (
           <div className="error-toast">설정 로드 실패: {loadError}</div>

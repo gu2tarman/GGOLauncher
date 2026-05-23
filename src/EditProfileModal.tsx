@@ -204,9 +204,6 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       };
     });
 
-  const setActiveAccount = (id: string) =>
-    updateServer("active_account_id", id);
-
   const pickUo = async () => {
     const picked = await api.clientSelectDirectory(draft.uo_path || undefined);
     if (picked) update("uo_path", picked);
@@ -402,31 +399,20 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         )}
         {draft.server.accounts.length > 0 && (
           <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-            MULTI: {draft.server.accounts.filter((a, i) => isMultiEnabled(a, i)).length}/6 선택됨
+            MULTI LOGIN 대상: {draft.server.accounts.filter((a, i) => isMultiEnabled(a, i)).slice(0, 6).length}/6 선택됨
             {multiWarning && (
               <span style={{ color: "#f88", marginLeft: 8 }}>{multiWarning}</span>
             )}
           </div>
         )}
         {draft.server.accounts.map((acc, i) => {
-          const isActive = draft.server.active_account_id === acc.id;
           const reveal = !!showPw[acc.id];
           const multiOn = isMultiEnabled(acc, i);
           return (
-            <div key={acc.id} className={`account-row ${isActive ? "is-active" : ""}`}>
-              <label className="account-radio">
-                <input
-                  type="radio"
-                  name="active-account"
-                  checked={isActive}
-                  onChange={() => setActiveAccount(acc.id)}
-                  title="기본(단일 PLAY 시 사용)"
-                />
-              </label>
+            <div key={acc.id} className="account-row">
               <label
                 className="account-radio"
                 title="MULTI LOGIN 포함 여부 (최대 6개)"
-                style={{ marginLeft: -4 }}
               >
                 <input
                   type="checkbox"
