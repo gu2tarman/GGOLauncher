@@ -269,19 +269,6 @@ function App() {
       setUpdateState({ kind: "error", message: String(e) });
     }
   };
-  const onUpdateDoubleClick = () => {
-    switch (updateState.kind) {
-      case "uptodate":
-        setUpdateState({ kind: "available", version: "1.5.0" });
-        break;
-      case "available":
-      case "ready":
-      case "error":
-        setUpdateState({ kind: "uptodate" });
-        break;
-    }
-  };
-
   let updateLabel: string;
   let updateClass: string;
   let updateDisabled = false;
@@ -421,8 +408,6 @@ function App() {
             className={`btn-update ${updateClass} ${updateDisabled ? "is-disabled" : ""}`}
             aria-disabled={updateDisabled}
             onClick={onUpdateClick}
-            onDoubleClick={onUpdateDoubleClick}
-            title="더블클릭으로 상태 토글 (개발용)"
           >
             {updateLabel}
             {updateState.kind === "downloading" && (

@@ -175,23 +175,33 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
 
   const canSave = draft.name.trim().length > 0 && draft.server.address.trim().length > 0;
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const onSaveClick = async () => {
     if (!canSave || !draft) return;
-    // 저장 직전 — draft의 평문 비밀번호를 다시 암호화
-    const accounts = await Promise.all(
-      draft.server.accounts.map(async (a) => ({
-        ...a,
-        password_encrypted: a.password_encrypted
-          ? await api.encryptPassword(a.password_encrypted).catch(() => a.password_encrypted)
-          : "",
-      }))
-    );
-    const encrypted: Profile = {
-      ...draft,
-      server: { ...draft.server, accounts },
-    };
-    onSave(encrypted);
-    onClose();
+    setSaveError(null);
+    // 저장 직전 — draft의 평문 비밀번호를 다시 암호화.
+    // 암호화 실패 시 저장 중단(평문 저장 금지).
+    try {
+      const accounts = await Promise.all(
+        draft.server.accounts.map(async (a) => ({
+          ...a,
+          password_encrypted: a.password_encrypted
+            ? await api.encryptPassword(a.password_encrypted)
+            : "",
+        }))
+      );
+      const encrypted: Profile = {
+        ...draft,
+        server: { ...draft.server, accounts },
+      };
+      onSave(encrypted);
+      onClose();
+    } catch (e) {
+      setSaveError(
+        `비밀번호 암호화 실패로 저장이 중단되었습니다. (평문 저장 차단)\n${String(e)}`
+      );
+    }
   };
 
   return (
@@ -213,6 +223,16 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         </>
       }
     >
+      {saveError && (
+        <div
+          className="error-toast"
+          style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}
+          onClick={() => setSaveError(null)}
+        >
+          {saveError}
+        </div>
+      )}
+
       {/* Profile Info */}
       <section className="form-section">
         <header className="form-section-title">프로필 정보</header>

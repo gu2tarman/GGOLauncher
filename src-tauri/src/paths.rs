@@ -147,8 +147,15 @@ fn read_pe_file_version(exe: &Path) -> Option<String> {
     if ok == 0 || info_ptr.is_null() {
         return None;
     }
-
+    // 안전 검증: 반환 길이가 VS_FIXEDFILEINFO 크기 이상이어야 함.
+    if (info_len as usize) < std::mem::size_of::<VS_FIXEDFILEINFO>() {
+        return None;
+    }
     let info = unsafe { &*(info_ptr as *const VS_FIXEDFILEINFO) };
+    // signature 확인 (VS_FFI_SIGNATURE = 0xFEEF04BD)
+    if info.dwSignature != 0xFEEF_04BD {
+        return None;
+    }
     let major = (info.dwFileVersionMS >> 16) & 0xFFFF;
     let minor = info.dwFileVersionMS & 0xFFFF;
     let build = (info.dwFileVersionLS >> 16) & 0xFFFF;

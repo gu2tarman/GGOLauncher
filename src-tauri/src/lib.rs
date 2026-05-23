@@ -11,37 +11,73 @@ mod updater;
 use notice::NoticeBoard;
 use paths::PathInfo;
 use settings::Settings;
-use std::process::Command;
 
 // ── 외부 링크 ─────────────────────────────────────────────
+/// 외부 URL을 OS 기본 핸들러로 엽니다.
+/// scheme 화이트리스트(http/https/mailto/tel) + control char 거부.
+/// Windows는 ShellExecuteW 직접 호출(cmd 미사용 → 메타문자 인젝션 차단).
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
-    let lower = url.to_lowercase();
+    validate_external_url(&url)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        shell_open_url(&url)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(cmd)
+            .arg(&url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
+fn validate_external_url(url: &str) -> Result<(), String> {
+    if url.is_empty() {
+        return Err("URL이 비어있습니다".into());
+    }
+    // 제어 문자/줄바꿈/공백 거부 — ShellExecuteW가 해석 가능한 모든 경계 차단
+    if url.chars().any(|c| c.is_control() || c == '\n' || c == '\r' || c == '\0') {
+        return Err("URL에 허용되지 않는 문자가 포함됨".into());
+    }
+    let lower = url.to_ascii_lowercase();
     let allowed = lower.starts_with("http://")
         || lower.starts_with("https://")
         || lower.starts_with("mailto:")
         || lower.starts_with("tel:");
     if !allowed {
-        return Err(format!("Disallowed URL scheme: {url}"));
+        return Err(format!("허용되지 않는 URL scheme: {url}"));
     }
+    Ok(())
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        Command::new("cmd")
-            .args(["/C", "start", "", &url])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-        Command::new(cmd)
-            .arg(&url)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+#[cfg(target_os = "windows")]
+fn shell_open_url(url: &str) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb: Vec<u16> = OsStr::new("open").encode_wide().chain(once(0)).collect();
+    let file: Vec<u16> = OsStr::new(url).encode_wide().chain(once(0)).collect();
+
+    // ShellExecuteW return > 32 = 성공
+    let h = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL as i32,
+        )
+    };
+    if (h as isize) <= 32 {
+        return Err(format!("ShellExecuteW 실패 (code {})", h as isize));
     }
     Ok(())
 }
@@ -89,8 +125,9 @@ async fn cuo_select_directory(start_dir: Option<String>) -> Option<String> {
 }
 
 // ── 비밀번호 암복호화 (DPAPI) ─────────────────────────────
+/// DPAPI 암호화 — 실패 시 평문 저장 금지(Err 반환).
 #[tauri::command]
-fn encrypt_password(plain: String) -> String {
+fn encrypt_password(plain: String) -> Result<String, String> {
     crypto::encrypt(&plain)
 }
 

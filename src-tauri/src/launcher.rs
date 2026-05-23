@@ -178,13 +178,50 @@ fn push_kv(out: &mut Vec<String>, key: &str, val: &str) {
     out.push(val.into());
 }
 
-/// 공백/탭이 있으면 따옴표로 감싸고 내부 따옴표는 이스케이프.
+/// Windows CommandLineToArgvW 규칙에 맞춘 quoting.
+/// - 공백/탭/따옴표 없으면 그대로
+/// - 있으면 `"..."` 감싸기. 내부 `"`는 `\"`. 따옴표 직전의 연속 `\`는 두 배.
+///   (특히 경로가 `C:\foo\`처럼 백슬래시로 끝나는 케이스에서
+///    naive `"C:\foo\"`는 닫는 따옴표를 escape해버려 인자 병합 발생.)
 fn q(s: &str) -> String {
-    if s.chars().any(|c| c.is_whitespace() || c == '"') {
-        format!("\"{}\"", s.replace('"', "\\\""))
-    } else {
-        s.to_string()
+    if !s.chars().any(|c| c.is_whitespace() || c == '"') {
+        return s.to_string();
     }
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\\' {
+            // 연속 백슬래시 카운트
+            let mut bs = 0;
+            while i < chars.len() && chars[i] == '\\' {
+                bs += 1;
+                i += 1;
+            }
+            // 다음 글자가 " 또는 끝(닫는 따옴표 직전)이면 백슬래시 두 배
+            if i == chars.len() {
+                for _ in 0..(bs * 2) { out.push('\\'); }
+            } else if chars[i] == '"' {
+                for _ in 0..(bs * 2) { out.push('\\'); }
+                out.push('\\');
+                out.push('"');
+                i += 1;
+            } else {
+                for _ in 0..bs { out.push('\\'); }
+            }
+        } else if c == '"' {
+            out.push('\\');
+            out.push('"');
+            i += 1;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out.push('"');
+    out
 }
 
 // ── 콘솔 숨김 spawn (Command + CREATE_NO_WINDOW) ─────────────

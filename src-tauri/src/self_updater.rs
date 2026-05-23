@@ -67,6 +67,11 @@ where
 {
     use futures_util::StreamExt;
 
+    // manifest URL HTTPS 강제 (downgrade 방어)
+    if !manifest.url.to_ascii_lowercase().starts_with("https://") {
+        return Err("런처 manifest url은 https://여야 합니다".into());
+    }
+
     // 1) 임시 위치로 다운로드
     let temp_dir = std::env::temp_dir();
     let new_exe = temp_dir.join("GGOLauncher.exe.new");
@@ -134,41 +139,55 @@ fn write_updater_bat(
     new_exe: &PathBuf,
     current_exe: &PathBuf,
 ) -> Result<(), String> {
-    // CRLF + ANSI(cmd 기본 코드페이지) — 단순화하기 위해 ASCII만 사용
+    // CRLF + ASCII only. EnableDelayedExpansion 필수(!RETRY! 사용).
+    // 전략:
+    //   1) 기존 exe를 .old로 rename (삭제 X) — 실패 시 retry, 모두 실패면 그대로 종료.
+    //   2) 새 exe를 원본 자리로 move.
+    //   3) move 성공 시 .old 삭제(실패해도 무시), 새 런처 실행.
+    //   4) move 실패 시 .old를 원위치로 복구하고 종료.
+    let old_exe = format!("{}.old", current_exe.display());
     let script = format!(
         "@echo off\r\n\
-         setlocal\r\n\
+         setlocal EnableExtensions EnableDelayedExpansion\r\n\
          rem GGO Launcher 자기 업데이트 헬퍼\r\n\
          rem 1. 런처 종료될 시간 확보\r\n\
          timeout /t 2 /nobreak >nul\r\n\
-         rem 2. 기존 exe 제거 (실패해도 retry)\r\n\
+         rem 2. 기존 exe → .old 로 rename (사용 중이면 retry)\r\n\
+         if exist \"{old}\" del /f /q \"{old}\" >nul 2>&1\r\n\
          set RETRY=0\r\n\
-         :retry_del\r\n\
-         del /f /q \"{cur}\" >nul 2>&1\r\n\
+         :retry_rename\r\n\
          if exist \"{cur}\" (\r\n\
-             set /a RETRY+=1\r\n\
-             if !RETRY! lss 10 (\r\n\
-                 timeout /t 1 /nobreak >nul\r\n\
-                 goto retry_del\r\n\
-             ) else (\r\n\
-                 echo [updater] 기존 exe 제거 실패 — 수동 종료 후 재시도 필요\r\n\
-                 pause\r\n\
-                 exit /b 1\r\n\
+             ren \"{cur}\" \"{cur_name}.old\" >nul 2>&1\r\n\
+             if exist \"{cur}\" (\r\n\
+                 set /a RETRY+=1\r\n\
+                 if !RETRY! lss 10 (\r\n\
+                     timeout /t 1 /nobreak >nul\r\n\
+                     goto retry_rename\r\n\
+                 ) else (\r\n\
+                     echo [updater] 기존 exe rename 실패 - 수동 종료 후 재시도 필요\r\n\
+                     pause\r\n\
+                     exit /b 1\r\n\
+                 )\r\n\
              )\r\n\
          )\r\n\
-         rem 3. 새 exe로 교체\r\n\
+         rem 3. 새 exe move\r\n\
          move /y \"{new}\" \"{cur}\" >nul\r\n\
          if errorlevel 1 (\r\n\
-             echo [updater] 파일 교체 실패\r\n\
+             echo [updater] 파일 교체 실패 - 이전 버전 복구\r\n\
+             if exist \"{old}\" ren \"{old}\" \"{cur_name}\" >nul 2>&1\r\n\
              pause\r\n\
              exit /b 1\r\n\
          )\r\n\
-         rem 4. 새 런처 실행\r\n\
+         rem 4. 이전 버전 삭제 (실패해도 무시)\r\n\
+         if exist \"{old}\" del /f /q \"{old}\" >nul 2>&1\r\n\
+         rem 5. 새 런처 실행\r\n\
          start \"\" \"{cur}\"\r\n\
-         rem 5. 자기 삭제\r\n\
+         rem 6. 자기 삭제\r\n\
          (goto) 2>nul & del \"%~f0\"\r\n",
         cur = current_exe.display(),
-        new = new_exe.display()
+        cur_name = current_exe.file_name().and_then(|s| s.to_str()).unwrap_or("GGOLauncher.exe"),
+        new = new_exe.display(),
+        old = old_exe,
     );
     std::fs::write(bat, script).map_err(|e| format!("bat 생성 실패: {e}"))
 }

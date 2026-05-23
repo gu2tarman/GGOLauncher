@@ -2,13 +2,15 @@
 //!
 //! 저장 포맷:
 //!   - `dpapi:<base64>` → DPAPI로 암호화된 데이터 (같은 OS 사용자만 복호화 가능)
-//!   - 그 외 → 평문 (레거시 호환 — 다음 저장 시 자동 암호화됨)
+//!   - 그 외 → 레거시 평문 (읽기 전용. 다음 저장 시 암호화로 마이그레이션됨)
+//!
+//! 보안 원칙: encrypt 실패 시 절대 평문 fallback 하지 않음(Err 반환).
 
 use base64::Engine;
 
 const PREFIX: &str = "dpapi:";
 
-/// 저장된 문자열에서 평문 추출. 평문이면 그대로 반환 (레거시 호환).
+/// 저장된 문자열에서 평문 추출. 평문이면 그대로 반환 (레거시 read-only 마이그레이션).
 pub fn decrypt_or_passthrough(stored: &str) -> String {
     if stored.is_empty() {
         return String::new();
@@ -33,21 +35,15 @@ pub fn decrypt_or_passthrough(stored: &str) -> String {
     }
 }
 
-/// 평문 → "dpapi:<base64>" 형식. 빈 문자열은 빈 그대로.
-pub fn encrypt(plain: &str) -> String {
+/// 평문 → "dpapi:<base64>" 형식. 빈 문자열은 빈 그대로(Ok).
+/// DPAPI 실패 시 Err — 호출자는 저장을 중단해야 함(평문 저장 금지).
+pub fn encrypt(plain: &str) -> Result<String, String> {
     if plain.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
-    match dpapi_encrypt(plain.as_bytes()) {
-        Ok(blob) => {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&blob);
-            format!("{PREFIX}{b64}")
-        }
-        Err(e) => {
-            eprintln!("[dpapi encrypt] 실패: {e} — 평문 fallback");
-            plain.to_string()
-        }
-    }
+    let blob = dpapi_encrypt(plain.as_bytes())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&blob);
+    Ok(format!("{PREFIX}{b64}"))
 }
 
 // ── Windows DPAPI ────────────────────────────────────────────

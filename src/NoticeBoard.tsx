@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { api } from "./api";
 import type { Notice } from "./types";
 
 // 마크다운 옵션: 줄바꿈 = <br>, GFM
 marked.setOptions({ gfm: true, breaks: true });
+
+// 외부 공지가 임의 HTML/스크립트를 주입 못 하게 sanitize.
+// 링크는 별도 "전체 보기" 버튼으로 처리하므로 본문 <a>는 차단.
+const SANITIZE_CONFIG = {
+  ALLOWED_TAGS: [
+    "p", "br", "strong", "em", "b", "i", "u", "del", "s", "code", "pre",
+    "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+    "hr", "span", "div",
+  ],
+  ALLOWED_ATTR: ["class"],
+};
 
 type Source = "margo" | "ggouo";
 
@@ -88,7 +100,10 @@ type ItemProps = {
 };
 
 function NoticeItem({ notice, expanded, onToggle }: ItemProps) {
-  const html = useMemo(() => marked.parse(notice.body_md) as string, [notice.body_md]);
+  const html = useMemo(() => {
+    const raw = marked.parse(notice.body_md) as string;
+    return DOMPurify.sanitize(raw, SANITIZE_CONFIG);
+  }, [notice.body_md]);
 
   return (
     <article className={`notice-item severity-${notice.severity} ${expanded ? "is-expanded" : ""}`}>

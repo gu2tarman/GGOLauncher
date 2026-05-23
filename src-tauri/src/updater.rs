@@ -1,12 +1,79 @@
 //! CUO 본체 자동 업데이트.
 //!
 //! manifest URL → 파일 목록 + SHA256 받아서 로컬 파일과 비교.
-//! 다른 파일만 다운로드 후 atomic rename으로 교체.
+//! 다른 파일만 다운로드 후 백업+rename으로 교체. 실패 시 rollback.
 //!
-//! 안전망: manifest에 없는 파일은 절대 건드리지 않음 (사용자 프로필/설정 보존).
+//! 안전망:
+//!   - manifest에 없는 파일은 절대 건드리지 않음 (사용자 프로필/설정 보존)
+//!   - manifest path는 sanitize 후 cuo_dir 밖으로 못 빠져나가게 강제
+//!   - 교체 전 기존 파일을 .bak로 백업 → 중간 실패 시 모두 복구
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+/// manifest의 path를 안전한 상대 경로 컴포넌트 리스트로 변환.
+/// 거부: 절대경로, 드라이브, Windows verbatim/UNC prefix, "..", 빈 세그먼트.
+fn sanitize_manifest_path(raw: &str) -> Result<PathBuf, String> {
+    if raw.is_empty() {
+        return Err("manifest path가 비어있음".into());
+    }
+    // 백슬래시 정규화 (manifest는 forward slash 권장이지만 호환)
+    let normalized = raw.replace('\\', "/");
+    if normalized.starts_with('/') {
+        return Err(format!("manifest path 절대경로 금지: {raw}"));
+    }
+    let p = PathBuf::from(&normalized);
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::Normal(seg) => {
+                let s = seg.to_string_lossy();
+                if s.is_empty() || s == "." {
+                    continue;
+                }
+                // 드라이브 letter (C:) 감지
+                if s.len() == 2 && s.ends_with(':') {
+                    return Err(format!("manifest path drive prefix 금지: {raw}"));
+                }
+                out.push(seg);
+            }
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(format!("manifest path '..' 금지: {raw}"));
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(format!("manifest path root/prefix 금지: {raw}"));
+            }
+        }
+    }
+    if out.as_os_str().is_empty() {
+        return Err(format!("manifest path 유효 세그먼트 없음: {raw}"));
+    }
+    Ok(out)
+}
+
+/// 최종 dest가 base 안에 있는지 확인 (canonicalize 기반, 미존재 파일이면 부모 기준).
+fn assert_inside_base(base: &Path, dest: &Path) -> Result<(), String> {
+    let base_real = base
+        .canonicalize()
+        .map_err(|e| format!("base canonicalize 실패: {e}"))?;
+    let probe = if dest.exists() {
+        dest.canonicalize()
+            .map_err(|e| format!("dest canonicalize 실패: {e}"))?
+    } else {
+        let parent = dest.parent().ok_or_else(|| "dest 부모 없음".to_string())?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("부모 생성 실패 {parent:?}: {e}"))?;
+        let parent_real = parent
+            .canonicalize()
+            .map_err(|e| format!("parent canonicalize 실패: {e}"))?;
+        parent_real.join(dest.file_name().ok_or_else(|| "dest filename 없음".to_string())?)
+    };
+    if !probe.starts_with(&base_real) {
+        return Err(format!("manifest path가 base 밖을 가리킴: {dest:?}"));
+    }
+    Ok(())
+}
 
 const MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/gu2tarman/ggoce-deploy/main/client/manifest.json";
@@ -72,7 +139,22 @@ pub async fn check_update(cuo_dir: &str) -> Result<UpdateCheck, String> {
     let mut changed = Vec::new();
     let mut total_bytes = 0u64;
     for f in &manifest.files {
-        let local_path = cuo_dir.join(&f.path);
+        let safe = sanitize_manifest_path(&f.path)?;
+        let local_path = cuo_dir.join(&safe);
+        // 미존재 파일도 base 검증 (부모만 canonicalize)
+        if let Some(parent) = local_path.parent() {
+            if parent.exists() {
+                let base_real = cuo_dir
+                    .canonicalize()
+                    .map_err(|e| format!("base canonicalize 실패: {e}"))?;
+                let parent_real = parent
+                    .canonicalize()
+                    .map_err(|e| format!("parent canonicalize 실패: {e}"))?;
+                if !parent_real.starts_with(&base_real) {
+                    return Err(format!("manifest path가 base 밖: {}", f.path));
+                }
+            }
+        }
         match check_file(&local_path, f) {
             Ok(None) => continue, // 이미 일치 → 스킵
             Ok(Some(reason)) => {
@@ -164,25 +246,31 @@ where
     let mut bytes_done: u64 = 0;
     on_progress(0, total_bytes);
 
-    // 1단계: 모든 파일을 .new로 다운로드
+    // base_url HTTPS 강제 (manifest 변조 시 http로 downgrade되는 케이스 차단)
+    if !check.manifest.base_url.to_ascii_lowercase().starts_with("https://") {
+        return Err("manifest base_url은 https://여야 합니다".into());
+    }
+
+    // 1단계: 모든 파일을 .new로 다운로드 + 해시 검증
     let mut tmp_files: Vec<(PathBuf, PathBuf)> = Vec::new();
     for cf in &check.changed {
-        let url = format!("{}{}", check.manifest.base_url, cf.path);
-        let dest = cuo_dir.join(&cf.path);
-        let tmp = dest.with_extension(format!(
-            "{}.new",
-            dest.extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-        ));
+        let safe = sanitize_manifest_path(&cf.path)?;
+        let dest = cuo_dir.join(&safe);
 
-        // 부모 디렉터리 생성 (manifest에 새 서브폴더 파일 추가 시 대비)
-        if let Some(parent) = tmp.parent() {
+        // 부모 디렉터리 생성 + base 확인
+        if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(|e| format!("디렉터리 생성 실패 {parent:?}: {e}"))?;
         }
+        assert_inside_base(&cuo_dir, &dest)?;
 
+        let tmp = dest.with_extension(format!(
+            "{}.new",
+            dest.extension().and_then(|s| s.to_str()).unwrap_or("")
+        ));
+
+        let url = format!("{}{}", check.manifest.base_url, cf.path);
         let resp = client
             .get(&url)
             .send()
@@ -209,7 +297,7 @@ where
             .map_err(|e| format!("flush 실패: {e}"))?;
         drop(file);
 
-        // 다운로드된 임시 파일의 해시 검증
+        // 해시 검증
         let actual = sha256_file(&tmp)?;
         let expected = check
             .manifest
@@ -219,7 +307,6 @@ where
             .map(|f| f.sha256.clone())
             .unwrap_or_default();
         if !actual.eq_ignore_ascii_case(&expected) {
-            // 검증 실패 → 임시 파일 삭제, 에러
             let _ = std::fs::remove_file(&tmp);
             return Err(format!(
                 "해시 불일치: {} (expected={expected}, got={actual})",
@@ -230,23 +317,66 @@ where
         tmp_files.push((tmp, dest));
     }
 
-    // 2단계: 모든 다운로드 성공 시 .new → 원본 atomic rename
+    // 2단계: backup → rename, 중간 실패 시 rollback.
+    // 기존 파일을 .bak로 rename(같은 디렉터리, atomic) 후 .new를 원본 자리로 rename.
+    // 한 파일이라도 실패하면 backup된 모든 파일을 원위치로 복구하고 .new는 삭제.
+    let mut applied: Vec<(PathBuf, Option<PathBuf>, PathBuf)> = Vec::new();
+    // (dest, backup_path or None if 원본 없었음, tmp_new_path)
     for (tmp, dest) in &tmp_files {
-        // 원본이 있으면 백업 (rollback용은 아니고, Windows에서 사용중일 때 회피)
-        // 단순화: 그냥 replace. Windows에서 사용 중인 파일은 rename 실패.
-        // CUO가 실행 중이면 사용자가 닫고 다시 시도해야 함.
-        if dest.exists() {
-            std::fs::remove_file(dest).map_err(|e| {
-                format!(
-                    "기존 파일 제거 실패 {dest:?}: {e} (CUO가 실행 중일 수 있음)"
-                )
-            })?;
+        let backup = if dest.exists() {
+            let b = dest.with_extension(format!(
+                "{}.bak",
+                dest.extension().and_then(|s| s.to_str()).unwrap_or("")
+            ));
+            let _ = std::fs::remove_file(&b);
+            if let Err(e) = std::fs::rename(dest, &b) {
+                rollback(&applied);
+                cleanup_tmps(&tmp_files);
+                return Err(format!(
+                    "기존 파일 백업(rename) 실패 {dest:?} → {b:?}: {e} (CUO 실행 중?)"
+                ));
+            }
+            Some(b)
+        } else {
+            None
+        };
+        if let Err(e) = std::fs::rename(tmp, dest) {
+            // .new → dest 실패 → 방금 만든 backup 되돌리고 rollback
+            if let Some(ref b) = backup {
+                let _ = std::fs::rename(b, dest);
+            }
+            rollback(&applied);
+            cleanup_tmps(&tmp_files);
+            return Err(format!("rename 실패 {tmp:?} → {dest:?}: {e}"));
         }
-        std::fs::rename(tmp, dest)
-            .map_err(|e| format!("rename 실패 {tmp:?} → {dest:?}: {e}"))?;
+        applied.push((dest.clone(), backup, tmp.clone()));
     }
 
+    // 성공 시 백업 정리
+    for (_, backup, _) in &applied {
+        if let Some(b) = backup {
+            let _ = std::fs::remove_file(b);
+        }
+    }
     Ok(())
+}
+
+/// applied에 기록된 (dest, backup, _) 페어를 원상복구.
+fn rollback(applied: &[(PathBuf, Option<PathBuf>, PathBuf)]) {
+    for (dest, backup, _) in applied.iter().rev() {
+        // 새로 들어간 파일 제거
+        let _ = std::fs::remove_file(dest);
+        // backup 있으면 되돌리기
+        if let Some(b) = backup {
+            let _ = std::fs::rename(b, dest);
+        }
+    }
+}
+
+fn cleanup_tmps(tmps: &[(PathBuf, PathBuf)]) {
+    for (tmp, _) in tmps {
+        let _ = std::fs::remove_file(tmp);
+    }
 }
 
 async fn fetch_manifest() -> Result<UpdateManifest, String> {
