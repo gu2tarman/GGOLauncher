@@ -8,6 +8,7 @@ import { EditProfileModal } from "./EditProfileModal";
 import { Modal } from "./Modal";
 import { OnboardingBanner } from "./OnboardingBanner";
 import { PluginPanel } from "./PluginPanel";
+import { ServerStatusBadge } from "./ServerStatusBadge";
 import type {
   LauncherManifest,
   PluginEntry,
@@ -526,8 +527,9 @@ function App() {
       <aside className="left-column">
         <div className="logo-wrap">
           <img src="/margo-logo.png" alt="Margo Launcher" className="logo" />
-          <div className="fan-made-note">* Unofficial fan-made launcher</div>
         </div>
+
+        <ServerStatusBadge />
 
         {sidebar.groups.map((g) => (
           <div key={g.label} className="btn-group">
@@ -719,10 +721,6 @@ function App() {
           <NoticeBoard source="margo" title="Margo 공지" />
           <NoticeBoard source="ggouo" title="GGOUO 공지" />
         </section>
-
-        {appVersion && (
-          <div className="app-version-badge">Launcher v{appVersion}</div>
-        )}
 
         {loadError && (
           <div className="error-toast">설정 로드 실패: {loadError}</div>
@@ -965,6 +963,11 @@ function App() {
           </div>
         </Modal>
       )}
+
+      <div className="app-footer">
+        <span>* Unofficial fan-made launcher</span>
+        {appVersion && <span> · Launcher v{appVersion}</span>}
+      </div>
     </div>
   );
 }

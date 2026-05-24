@@ -5,6 +5,7 @@ mod paths;
 mod plugins;
 mod profile;
 mod self_updater;
+mod server_status;
 mod settings;
 mod sidebar;
 mod updater;
@@ -209,6 +210,21 @@ async fn fetch_sidebar() -> Result<sidebar::Sidebar, String> {
     sidebar::fetch().await
 }
 
+// ── 서버 상태 ─────────────────────────────────────────────
+#[tauri::command]
+async fn fetch_server_endpoint() -> Result<server_status::ServerEndpoint, String> {
+    server_status::fetch_endpoint().await
+}
+
+#[tauri::command]
+async fn check_server_status(
+    host: String,
+    port: u16,
+    timeout_ms: Option<u64>,
+) -> server_status::ServerStatus {
+    server_status::check_status(&host, port, timeout_ms.unwrap_or(3000)).await
+}
+
 // ── CUO 업데이트 체크 ─────────────────────────────────────
 #[tauri::command]
 async fn cuo_check_update(cuo_path: String) -> Result<updater::UpdateCheck, String> {
@@ -300,6 +316,8 @@ pub fn run() {
             import_plugin_from_zip,
             fetch_notice,
             fetch_sidebar,
+            fetch_server_endpoint,
+            check_server_status,
             cuo_check_update,
             cuo_fetch_manifest_for_install,
             cuo_apply_update,

@@ -91,6 +91,17 @@ export interface Sidebar {
   groups: SidebarGroup[];
 }
 
+// ── Server Status (마고 서버 가용성) ────────────────────
+export interface ServerEndpoint {
+  host: string;
+  port: number;
+  label?: string;
+}
+
+export type ServerStatus =
+  | { state: "online"; latency_ms: number }
+  | { state: "offline"; reason: string };
+
 // ── Paths ──────────────────────────────────────────────
 export interface PathInfo {
   exists: boolean;

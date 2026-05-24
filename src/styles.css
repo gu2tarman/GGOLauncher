@@ -42,12 +42,13 @@ button {
 
 /* ── Layout ─────────────────────────────────────────────── */
 .app {
+  position: relative;
   display: grid;
   grid-template-columns: 280px 1fr;
   grid-template-rows: 1fr;          /* row도 명시 → 자식 높이 제한 */
   height: 100vh;
   gap: 24px;
-  padding: 24px;
+  padding: 24px 24px 28px;          /* 하단 여백 — footer 띄울 공간 */
   overflow: hidden;
 }
 
@@ -59,9 +60,15 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
+  gap: 0;
   padding-top: 8px;
-  overflow-y: auto;       /* 좌측 그룹이 많아져도 스크롤 */
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+/* 마지막 그룹(주로 ORIGINAL CLASSICUO)을 하단으로 — 공지 카드 끝과 정렬 */
+.left-column > .btn-group:last-of-type {
+  margin-top: auto;
 }
 
 .left-column::-webkit-scrollbar { width: 6px; }
@@ -73,6 +80,7 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  margin-bottom: 20px;
 }
 
 .logo {
@@ -82,11 +90,22 @@ button {
   user-select: none;
 }
 
-.fan-made-note {
-  font-size: 10px;
+/* 앱 하단 footer — 메인 그리드 밖에 absolute로 배치 (컬럼 높이 침범 X).
+   하단 여백 영역에 우측 정렬, 컬럼 끝선보다 약간 아래. */
+.app-footer {
+  position: absolute;
+  right: 24px;
+  bottom: 6px;
+  font-size: 12px;
   color: var(--text-mute);
-  letter-spacing: 0.5px;
-  margin-top: -2px;
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+  user-select: none;
+  pointer-events: none;             /* 클릭 통과 */
+}
+
+.server-status-badge {
+  margin-bottom: 22px;
 }
 
 .btn-group {
@@ -97,14 +116,17 @@ button {
   padding: 0 16px;
 }
 
+.left-column > .btn-group:not(:last-of-type) {
+  margin-bottom: 18px;
+}
+
 .btn-group-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 2px;
   color: var(--text-mute);
-  padding: 4px 4px 6px;
+  padding: 12px 4px 6px;
   border-top: 1px solid var(--border-soft);
-  padding-top: 12px;
 }
 
 .side-btn {
@@ -154,6 +176,7 @@ button {
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  min-height: 0;
 }
 
 /* Top actions: PLAY 60% + Update 40%, 80px tall */
@@ -1093,22 +1116,14 @@ select.text-input {
 
 /* Notice row (2 columns) */
 .notice-row {
-  flex: 1;
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   min-height: 0;
 }
 
-.app-version-badge {
-  align-self: flex-end;
-  margin-top: -6px;
-  color: var(--text-mute);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  user-select: none;
-}
+/* (legacy) app-version-badge — 현재는 .app-footer에 통합됨 */
 
 .notice-card {
   background: var(--bg-panel);

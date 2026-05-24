@@ -5,6 +5,8 @@ import type {
   NoticeBoard,
   PathInfo,
   SelfUpdateCheck,
+  ServerEndpoint,
+  ServerStatus,
   Settings,
   Sidebar,
   UpdateCheck,
@@ -19,6 +21,13 @@ export const api = {
 
   fetchNotice: () => invoke<NoticeBoard>("fetch_notice"),
   fetchSidebar: () => invoke<Sidebar>("fetch_sidebar"),
+  fetchServerEndpoint: () => invoke<ServerEndpoint>("fetch_server_endpoint"),
+  checkServerStatus: (host: string, port: number, timeoutMs?: number) =>
+    invoke<ServerStatus>("check_server_status", {
+      host,
+      port,
+      timeoutMs: timeoutMs ?? null,
+    }),
 
   inspectPath: (path: string) => invoke<PathInfo>("inspect_path", { path }),
   detectClientVersion: (uoPath: string) =>
