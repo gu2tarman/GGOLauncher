@@ -49,8 +49,8 @@ jobs:
           $exe = "src-tauri/target/release/ggo-launcher.exe"
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item $exe).Length
-          "sha256=$hash"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "size=$size"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "size=$size" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "ggo-launcher.exe: size=$size bytes, sha256=$hash"
 
       - name: Build release notes
@@ -70,16 +70,16 @@ jobs:
           $body
 
           ### 다운로드
-          - **``GGOLauncher.exe``**: 단일 실행 파일
-          - **``GGOLauncher_${{ github.ref_name }}_x64-setup.exe``**: NSIS 설치 파일
+          - **GGOLauncher.exe**: 단일 실행 파일
+          - **NSIS setup exe**: 설치 파일
 
           ### 자동 업데이트 매니페스트 값
-          ```text
+          ~~~text
           version: $($tag.TrimStart("v"))
           size:    ${{ steps.hash.outputs.size }}
           sha256:  ${{ steps.hash.outputs.sha256 }}
           url:     GitHub Release의 GGOLauncher.exe 다운로드 링크
-          ```
+          ~~~
           "@ | Set-Content -Encoding UTF8 "release-body.md"
 
       - name: Rename single-exe for release artifact
