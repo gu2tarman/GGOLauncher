@@ -2,6 +2,17 @@ use crate::profile::{Account, Profile};
 use crate::settings;
 use std::path::{Path, PathBuf};
 
+/// settings.ui.first_launch_completed 마킹 (이미 true면 no-op).
+/// 실패해도 silent — 부가 기능이라 실행 흐름은 막지 않음.
+fn mark_first_launch_completed() {
+    if let Ok(mut s) = settings::load() {
+        if !s.ui.first_launch_completed {
+            s.ui.first_launch_completed = true;
+            let _ = settings::save(&s);
+        }
+    }
+}
+
 /// 단일 PLAY — 활성 계정(있으면)으로 CUO 1회 실행.
 /// account_override가 Some이면 그 계정 사용, None이면 무인증(사용자가 CUO에서 직접 입력).
 pub fn launch(profile_id: &str, account_override: Option<&Account>) -> Result<(), String> {
@@ -11,6 +22,7 @@ pub fn launch(profile_id: &str, account_override: Option<&Account>) -> Result<()
 
     let args = build_cuo_args(&profile, &plugin.path, account_override);
     spawn_hidden(&cuo_exe, &cuo_dir, &args)?;
+    mark_first_launch_completed();
     Ok(())
 }
 
@@ -59,6 +71,9 @@ pub async fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, Stri
         let args = build_cuo_args(&profile, &plugin.path, Some(account));
         spawn_hidden(&cuo_exe, &cuo_dir, &args)?;
         count += 1;
+    }
+    if count > 0 {
+        mark_first_launch_completed();
     }
     Ok(count)
 }

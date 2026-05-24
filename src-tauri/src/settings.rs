@@ -38,6 +38,12 @@ pub struct PluginEntry {
 pub struct UiSettings {
     #[serde(default = "default_lang")]
     pub language: String,
+    /// 첫 사용 온보딩 배너 닫혔는지(영구). true면 다시 안 뜸.
+    #[serde(default)]
+    pub onboarding_dismissed: bool,
+    /// PLAY/MULTI를 한 번이라도 실행했는지 — 온보딩 3단계 자동 체크용.
+    #[serde(default)]
+    pub first_launch_completed: bool,
 }
 
 fn default_lang() -> String {

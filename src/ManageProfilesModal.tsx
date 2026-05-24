@@ -133,15 +133,24 @@ export function ManageProfilesModal({
                       className="profile-card-actions"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <button className="btn-action" onClick={() => onEdit(p.id)}>
+                      <button
+                        className="btn-action"
+                        onClick={() => onEdit(p.id)}
+                        title="이 프로필 편집 (서버/경로/계정 수정)"
+                      >
                         Edit
                       </button>
-                      <button className="btn-action" onClick={() => onCopy(p)}>
+                      <button
+                        className="btn-action"
+                        onClick={() => onCopy(p)}
+                        title="같은 설정으로 복제본 만들기"
+                      >
                         Copy
                       </button>
                       <button
                         className="btn-action btn-action-danger"
                         onClick={() => setConfirmDelete(p.id)}
+                        title="이 프로필 삭제 (되돌릴 수 없음)"
                       >
                         Delete
                       </button>

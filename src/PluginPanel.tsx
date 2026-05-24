@@ -170,7 +170,47 @@ export function PluginPanel({ plugins, onChange }: Props) {
       </header>
       <div className="plugin-grid">
         {plugins.length === 0 ? (
-          <div className="plugin-empty">등록된 플러그인이 없습니다</div>
+          <div
+            className="plugin-empty"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              padding: "16px 10px",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 22, lineHeight: 1 }}>🧩</div>
+            <div style={{ fontWeight: 600 }}>플러그인이 필요합니다</div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              RazorEnhanced나 ClassicAssist 같은 보조 도구를 등록하세요.
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginTop: 4,
+                flexWrap: "wrap",
+                justifyContent: "center",
+              }}
+            >
+              <button
+                className="btn-small"
+                onClick={onAdd}
+                title=".dll/.exe 직접 선택"
+              >
+                + Add
+              </button>
+              <button
+                className="btn-small"
+                onClick={onImportZip}
+                title="배포 ZIP을 풀어서 자동 등록"
+              >
+                Import ZIP
+              </button>
+            </div>
+          </div>
         ) : (
           plugins.map((plugin, i) => {
             const isActive = i === activeIdx;

@@ -391,10 +391,34 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           </button>
         </header>
         {draft.server.accounts.length === 0 && (
-          <div className="account-empty">
-            계정이 없습니다. PLAY는 CUO 로그인 화면에서 직접 입력하게 됩니다.
-            <br />
-            "+ 계정 추가"로 MULTI LOGIN용 계정을 등록할 수 있습니다.
+          <div
+            className="account-empty"
+            style={{
+              border: "1px dashed rgba(255,255,255,0.18)",
+              borderRadius: 6,
+              padding: "14px 12px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 20, lineHeight: 1 }}>👤</div>
+            <div style={{ fontWeight: 600 }}>등록된 계정이 없습니다</div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              MULTI LOGIN을 사용하려면 계정 추가가 필수입니다.<br />
+              (PLAY 단독은 CUO 로그인 화면에서 직접 입력 가능)
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-primary-sm"
+              onClick={addAccount}
+              title="이 프로필에 첫 계정 추가"
+              style={{ marginTop: 4 }}
+            >
+              + 첫 계정 추가
+            </button>
           </div>
         )}
         {draft.server.accounts.length > 0 && (
@@ -412,12 +436,17 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
             <div key={acc.id} className="account-row">
               <label
                 className="account-radio"
-                title="MULTI LOGIN 포함 여부 (최대 6개)"
+                title={
+                  multiOn
+                    ? "MULTI 포함됨 — 해제하려면 클릭 (실행 대상에서 제외)"
+                    : "MULTI 제외됨 — 클릭하여 포함 (최대 6개까지)"
+                }
               >
                 <input
                   type="checkbox"
                   checked={multiOn}
                   onChange={(e) => toggleMulti(acc.id, e.target.checked)}
+                  aria-label={multiOn ? "MULTI 포함 해제" : "MULTI 포함"}
                 />
               </label>
               <div className="account-fields">

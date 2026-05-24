@@ -6,6 +6,7 @@ import { NoticeBoard } from "./NoticeBoard";
 import { ManageProfilesModal } from "./ManageProfilesModal";
 import { EditProfileModal } from "./EditProfileModal";
 import { Modal } from "./Modal";
+import { OnboardingBanner } from "./OnboardingBanner";
 import { PluginPanel } from "./PluginPanel";
 import type {
   LauncherManifest,
@@ -15,6 +16,14 @@ import type {
   Sidebar,
   UpdateCheck,
 } from "./types";
+
+/**
+ * 툴팁 표준화 가이드 (모든 인터랙티브 요소에 적용):
+ * - 활성 + 클릭 가능 → "[동작 설명]"             예: "프로필 편집"
+ * - 비활성 + 이유    → "[이유 — 해결방법]"        예: "프로필을 먼저 생성하세요"
+ * - 토글/체크박스    → "[현재 상태] — [반전 안내]" 예: "MULTI 포함됨 — 해제하려면 클릭"
+ * - 상태 표시        → 그 자체로 충분 (별도 툴팁 생략)
+ */
 
 // fetch 실패 시 사용할 폴백 사이드바 (런처 초기 배포 시 박혀있던 값)
 const FALLBACK_SIDEBAR: Sidebar = {
@@ -107,6 +116,28 @@ function App() {
       .then(setAppVersion)
       .catch((e) => console.warn("[app version]", e));
   }, []);
+
+  // 온보딩 3단계 모두 충족 시 자동 영구 dismiss
+  useEffect(() => {
+    if (!settings || settings.ui?.onboarding_dismissed) return;
+    const done =
+      settings.plugins.length > 0 &&
+      settings.profiles.length > 0 &&
+      !!settings.ui?.first_launch_completed;
+    if (done) {
+      const next: Settings = {
+        ...settings,
+        ui: { ...settings.ui, onboarding_dismissed: true },
+      };
+      persistSettings(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    settings?.plugins.length,
+    settings?.profiles.length,
+    settings?.ui?.first_launch_completed,
+    settings?.ui?.onboarding_dismissed,
+  ]);
 
   // 시작 시 1회 sidebar fetch
   useEffect(() => {
@@ -280,6 +311,14 @@ function App() {
     setLaunchInfo(null);
     try {
       await api.cuoLaunch(profile.id, null);
+      // 백엔드가 first_launch_completed를 마킹했으므로 settings 재로드
+      // (온보딩 배너 3단계 자동 반영)
+      try {
+        const fresh = await api.getSettings();
+        setSettings(fresh);
+      } catch {
+        /* settings reload 실패는 silent */
+      }
     } catch (e) {
       setLaunchError(String(e));
     } finally {
@@ -300,6 +339,13 @@ function App() {
     try {
       const count = await api.cuoLaunchMulti(profile.id, 4000);
       setLaunchInfo(`${count}개 계정 순차 실행 중...`);
+      // 백엔드가 first_launch_completed를 마킹했으므로 settings 재로드
+      try {
+        const fresh = await api.getSettings();
+        setSettings(fresh);
+      } catch {
+        /* settings reload 실패는 silent */
+      }
     } catch (e) {
       setLaunchError(String(e));
     } finally {
@@ -499,6 +545,18 @@ function App() {
 
       {/* ── Right ────────────────────────── */}
       <main className="right-column">
+        {settings && !settings.ui?.onboarding_dismissed && (
+          <OnboardingBanner
+            settings={settings}
+            onDismiss={() => {
+              const next: Settings = {
+                ...settings,
+                ui: { ...settings.ui, onboarding_dismissed: true },
+              };
+              persistSettings(next);
+            }}
+          />
+        )}
         {selfUpdate.kind !== "idle" && (
           <div className={`self-update-banner self-update-${selfUpdate.kind}`}>
             {selfUpdate.kind === "available" && (
@@ -598,24 +656,56 @@ function App() {
             </span>
           </header>
           <div className="profile-body">
-            <div className="profile-info">
-              <div className="profile-name">
-                {profile ? profile.name : "프로필 없음"}
-                {profile && accountCount > 0 && (
-                  <span className="profile-account-pill">
-                    MULTI {multiCount}/{accountCount}계정
-                  </span>
-                )}
+            {profile ? (
+              <>
+                <div className="profile-info">
+                  <div className="profile-name">
+                    {profile.name}
+                    {accountCount > 0 && (
+                      <span className="profile-account-pill">
+                        MULTI {multiCount}/{accountCount}계정
+                      </span>
+                    )}
+                  </div>
+                  <div className="profile-addr">
+                    {profile.server.address}:{profile.server.port}
+                  </div>
+                </div>
+                <button
+                  className="btn-change"
+                  onClick={() => setManageOpen(true)}
+                  title="프로필 전환 / 추가 / 편집"
+                >
+                  Change
+                </button>
+              </>
+            ) : (
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "14px 10px",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, lineHeight: 1 }}>🎮</div>
+                <div style={{ fontWeight: 600 }}>첫 프로필을 만들어볼까요?</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  접속 서버 정보와 계정을 등록하면 바로 PLAY/MULTI LOGIN 가능합니다.
+                </div>
+                <button
+                  className="btn-primary btn-primary-sm"
+                  onClick={() => setManageOpen(true)}
+                  title="프로필 관리 모달을 열어 새 프로필 생성"
+                  style={{ marginTop: 4 }}
+                >
+                  + 프로필 만들기
+                </button>
               </div>
-              <div className="profile-addr">
-                {profile
-                  ? `${profile.server.address}:${profile.server.port}`
-                  : "—"}
-              </div>
-            </div>
-            <button className="btn-change" onClick={() => setManageOpen(true)}>
-              {profile ? "Change" : "New Profile"}
-            </button>
+            )}
           </div>
         </section>
 

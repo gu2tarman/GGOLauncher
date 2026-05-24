@@ -45,6 +45,10 @@ export interface PluginEntry {
 
 export interface UiSettings {
   language: string;
+  /** 첫 사용 온보딩 배너 닫혔는지 (영구) */
+  onboarding_dismissed?: boolean;
+  /** PLAY/MULTI 한 번이라도 실행했는지 — 온보딩 3단계 자동 체크용 */
+  first_launch_completed?: boolean;
 }
 
 export interface Settings {
