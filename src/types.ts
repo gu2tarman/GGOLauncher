@@ -11,6 +11,8 @@ export interface Account {
   id: string;
   username: string;
   password_encrypted: string;
+  /** 선택 캐릭터명. 비어 있으면 서버 선택 단계까지만 자동 진행 */
+  character_name?: string | null;
   display_name?: string | null;
   /** MULTI LOGIN 포함 여부. null/undefined = 레거시(인덱스<6이면 true) */
   multi_enabled?: boolean | null;
@@ -69,6 +71,8 @@ export interface Notice {
   body_md: string;
   /** 선택: 전체 본문 외부 링크 (GitHub release/markdown 등) */
   url?: string | null;
+  /** 선택: url 버튼에 표시할 짧은 라벨 */
+  url_label?: string | null;
 }
 
 export interface NoticeBoard {

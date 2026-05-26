@@ -19,9 +19,12 @@ pub struct Notice {
     pub severity: Severity,
     pub body_md: String,
     /// 선택: 전체 본문 외부 링크 (GitHub release/markdown 등).
-    /// 있으면 본문 끝에 "전체 보기 →" 버튼 노출.
+    /// 있으면 본문 끝에 외부 링크 버튼 노출.
     #[serde(default)]
     pub url: Option<String>,
+    /// 선택: url 버튼에 표시할 짧은 라벨.
+    #[serde(default)]
+    pub url_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

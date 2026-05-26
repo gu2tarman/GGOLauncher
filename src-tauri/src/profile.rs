@@ -42,6 +42,9 @@ pub struct Account {
     pub username: String,
     /// DPAPI 암호화될 비밀번호 (현재는 평문 placeholder).
     pub password_encrypted: String,
+    /// 선택 캐릭터명. 비어 있으면 기존처럼 서버 선택 단계까지만 자동 진행.
+    #[serde(default)]
+    pub character_name: Option<String>,
     /// 화면 표시용 별명 (예: "메인 캐릭"). 없으면 username 표시.
     #[serde(default)]
     pub display_name: Option<String>,

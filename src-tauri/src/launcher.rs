@@ -35,7 +35,7 @@ fn is_account_multi_enabled(account: &Account, index: usize) -> bool {
     }
 }
 
-/// MULTI LOGIN — 프로필 안의 multi_enabled 계정만 순차 spawn.
+/// MULTI LOGIN – 프로필 안의 multi_enabled 계정만 순차 spawn.
 /// 각 spawn 사이 `delay_ms` 만큼 대기 (서버의 동일 IP 연속 접속 거부 방지).
 /// async: tokio::sleep 사용해서 Tauri IPC/webview 스레드 안 막음 (안 그러면 응답 없음).
 pub async fn launch_multi(profile_id: &str, delay_ms: u64) -> Result<usize, String> {
@@ -168,6 +168,7 @@ fn build_cuo_args(
     // CUO 플래그 구조상 -autologin은 (로그인+서버+캐릭) 자동선택 ALL-OR-NOTHING.
     // 캐릭은 사용자가 골라야 하므로 -autologin False 유지. 로그인 화면에 creds만 채워짐.
     // 비밀번호는 settings.json에 DPAPI로 암호화돼 있어서 spawn 전 복호화 필요.
+    let mut has_character_target = false;
     if let Some(a) = account {
         if !a.username.trim().is_empty() {
             out.push("-username".into());
@@ -179,11 +180,18 @@ fn build_cuo_args(
                     out.push(q(&pw_plain));
                 }
             }
+            if let Some(character_name) = a.character_name.as_deref().map(str::trim) {
+                if !character_name.is_empty() {
+                    out.push("-lastcharactername".into());
+                    out.push(q(character_name));
+                    has_character_target = true;
+                }
+            }
         }
     }
 
     push_kv(&mut out, "-saveaccount", "False");
-    push_kv(&mut out, "-autologin", "False");
+    push_kv(&mut out, "-autologin", if has_character_target { "True" } else { "False" });
     push_kv(&mut out, "-reconnect", "False");
     push_kv(&mut out, "-reconnect_time", "1000");
     push_kv(&mut out, "-music", "True");

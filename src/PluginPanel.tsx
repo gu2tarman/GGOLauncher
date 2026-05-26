@@ -272,7 +272,6 @@ export function PluginPanel({ plugins, onChange }: Props) {
                       startEdit(i);
                     }}
                     title="더블클릭으로 이름 수정"
-                    style={{ cursor: "text" }}
                   >
                     {displayNameOfEntry(plugin)}
                   </span>

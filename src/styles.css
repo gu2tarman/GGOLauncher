@@ -342,7 +342,8 @@ button {
   justify-content: center;
 }
 
-.account-radio input[type="radio"] {
+.account-radio input[type="radio"],
+.account-radio input[type="checkbox"] {
   width: 16px;
   height: 16px;
   accent-color: var(--accent-purple);
@@ -351,7 +352,7 @@ button {
 
 .account-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr) minmax(0, 0.9fr);
   gap: 8px;
   min-width: 0;
 }
@@ -512,19 +513,70 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
+.profile-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-quick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.08s;
+}
+
+.profile-quick-card:hover {
+  border-color: rgba(45, 212, 191, 0.55);
+  background: rgba(45, 212, 191, 0.05);
+}
+
+.profile-quick-card:active {
+  transform: translateY(1px);
+}
+
+.profile-quick-card.is-active {
+  border-color: var(--accent-teal);
+  background: rgba(45, 212, 191, 0.08);
+  box-shadow: inset 3px 0 0 var(--accent-teal);
+}
+
+.profile-quick-name,
 .profile-name {
   font-size: 17px;
   font-weight: 700;
   margin-bottom: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.profile-quick-addr,
 .profile-addr {
   font-size: 13px;
   color: var(--text-dim);
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn-change {
@@ -1209,15 +1261,32 @@ select.text-input {
 }
 
 .notice-caret {
-  font-size: 11px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 20px;
+  line-height: 1;
   color: var(--text-mute);
   flex-shrink: 0;
-  transition: transform 0.2s;
+  transition: transform 0.2s, color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.notice-item-head:hover .notice-caret {
+  color: var(--accent-teal);
+  border-color: rgba(45, 212, 191, 0.55);
+  background: rgba(45, 212, 191, 0.1);
 }
 
 .notice-caret.is-open {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
   color: var(--accent-teal);
+  border-color: rgba(45, 212, 191, 0.65);
+  background: rgba(45, 212, 191, 0.12);
 }
 
 .notice-badge {
@@ -1241,8 +1310,16 @@ select.text-input {
   color: #1a0e00;
 }
 
-.notice-title {
+.notice-head-main {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.notice-title {
+  display: block;
   font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
@@ -1251,11 +1328,18 @@ select.text-input {
   white-space: nowrap;
 }
 
+.notice-item.is-expanded .notice-title {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 .notice-date {
   font-size: 11px;
   color: var(--text-mute);
   font-weight: 600;
-  flex-shrink: 0;
+  line-height: 1.15;
 }
 
 .notice-body {
@@ -1275,7 +1359,10 @@ select.text-input {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px dashed var(--border-soft);
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
 
 .btn-notice-more {

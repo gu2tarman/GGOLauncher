@@ -11,6 +11,7 @@ import { PluginPanel } from "./PluginPanel";
 import { ServerStatusBadge } from "./ServerStatusBadge";
 import type {
   LauncherManifest,
+  NoticeBoard as NoticeBoardData,
   PluginEntry,
   Profile,
   Settings,
@@ -77,6 +78,25 @@ function activeProfile(settings: Settings | null): Profile | null {
   return settings.profiles.find((p) => p.id === settings.active_profile_id) ?? null;
 }
 
+function isMultiEnabled(account: Profile["server"]["accounts"][number], index: number) {
+  const v = account.multi_enabled;
+  return v == null ? index < 6 : v === true;
+}
+
+function profileMultiStats(profile: Profile) {
+  const selected = profile.server.accounts.filter(isMultiEnabled);
+  return {
+    total: profile.server.accounts.length,
+    runnable: selected.slice(0, 6).length,
+    selected: selected.length,
+  };
+}
+
+function quickProfiles(settings: Settings | null): Profile[] {
+  if (!settings) return [];
+  return settings.profiles.slice(0, 2);
+}
+
 type UpdateState =
   | { kind: "checking" }
   | { kind: "uptodate" }
@@ -111,6 +131,9 @@ function App() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   // 사이드바 — 원격 fetch, 실패 시 FALLBACK 사용
   const [sidebar, setSidebar] = useState<Sidebar>(FALLBACK_SIDEBAR);
+  const [noticeBoard, setNoticeBoard] = useState<NoticeBoardData | null>(null);
+  const [noticeError, setNoticeError] = useState<string | null>(null);
+  const [noticeRetryNonce, setNoticeRetryNonce] = useState(0);
 
   useEffect(() => {
     getVersion()
@@ -153,6 +176,27 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setNoticeBoard(null);
+    setNoticeError(null);
+    api
+      .fetchNotice()
+      .then((board) => {
+        if (cancelled) return;
+        setNoticeBoard(board);
+        setNoticeError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setNoticeBoard(null);
+        setNoticeError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [noticeRetryNonce]);
 
   useEffect(() => {
     api
@@ -299,6 +343,7 @@ function App() {
       }).length
     : 0;
   const canMultiLogin = canPlay && multiCount > 0;
+  const profileOptions = quickProfiles(settings);
 
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -385,6 +430,11 @@ function App() {
   const onPluginsChange = (plugins: PluginEntry[]) => {
     if (!settings) return;
     persistSettings({ ...settings, plugins });
+  };
+
+  const onSelectProfile = (profileId: string) => {
+    if (!settings || settings.active_profile_id === profileId) return;
+    persistSettings({ ...settings, active_profile_id: profileId });
   };
 
   // ── 설치/업데이트 모달 상태 ────────────────────────
@@ -658,20 +708,35 @@ function App() {
             </span>
           </header>
           <div className="profile-body">
-            {profile ? (
+            {settings && profileOptions.length > 0 ? (
               <>
-                <div className="profile-info">
-                  <div className="profile-name">
-                    {profile.name}
-                    {accountCount > 0 && (
-                      <span className="profile-account-pill">
-                        MULTI {multiCount}/{accountCount}계정
-                      </span>
-                    )}
-                  </div>
-                  <div className="profile-addr">
-                    {profile.server.address}:{profile.server.port}
-                  </div>
+                <div className="profile-quick-grid">
+                  {profileOptions.map((p) => {
+                    const stats = profileMultiStats(p);
+                    const isActive = p.id === settings.active_profile_id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`profile-quick-card ${isActive ? "is-active" : ""}`}
+                        onClick={() => onSelectProfile(p.id)}
+                        aria-pressed={isActive}
+                        title={isActive ? "현재 선택된 프로필" : "이 프로필 선택"}
+                      >
+                        <span className="profile-quick-name">
+                          {p.name}
+                          {stats.total > 0 && (
+                            <span className="profile-account-pill">
+                              MULTI {stats.runnable}/{stats.total}계정
+                            </span>
+                          )}
+                        </span>
+                        <span className="profile-quick-addr">
+                          {p.server.address}:{p.server.port}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
                 <button
                   className="btn-change"
@@ -718,8 +783,20 @@ function App() {
 
 
         <section className="notice-row">
-          <NoticeBoard source="margo" title="Margo 공지" />
-          <NoticeBoard source="ggouo" title="GGOUO 공지" />
+          <NoticeBoard
+            title="Margo 공지"
+            items={noticeBoard?.margo ?? null}
+            loading={!noticeError && noticeBoard === null}
+            error={noticeError}
+            onRetry={() => setNoticeRetryNonce((n) => n + 1)}
+          />
+          <NoticeBoard
+            title="GGOUO 공지"
+            items={noticeBoard?.ggouo ?? null}
+            loading={!noticeError && noticeBoard === null}
+            error={noticeError}
+            onRetry={() => setNoticeRetryNonce((n) => n + 1)}
+          />
         </section>
 
         {loadError && (

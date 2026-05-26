@@ -153,6 +153,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         id,
         username: "",
         password_encrypted: defaultPw,
+        character_name: "",
         multi_enabled: currentCount < 6,
       };
       return {
@@ -230,6 +231,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           return {
             ...a,
             multi_enabled,
+            character_name: a.character_name?.trim() || null,
             password_encrypted: a.password_encrypted
               ? await api.encryptPassword(a.password_encrypted)
               : "",
@@ -480,6 +482,16 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
                     {reveal ? "숨김" : "보임"}
                   </button>
                 </div>
+                <input
+                  className="text-input account-character"
+                  placeholder="캐릭터명 (선택)"
+                  value={acc.character_name ?? ""}
+                  onChange={(e) =>
+                    updateAccount(acc.id, { character_name: e.target.value })
+                  }
+                  autoComplete="off"
+                  title="입력하면 MULTI LOGIN 시 해당 캐릭터까지 자동 로그인합니다. 비워두면 서버 선택 단계에서 멈춥니다."
+                />
               </div>
               <button
                 type="button"

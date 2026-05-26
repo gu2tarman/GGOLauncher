@@ -82,6 +82,7 @@ fn migrate(s: &mut Settings) {
                 id: id.clone(),
                 username: std::mem::take(&mut p.server.username),
                 password_encrypted: std::mem::take(&mut p.server.password_encrypted),
+                character_name: None,
                 display_name: None,
                 multi_enabled: Some(true),
             });
