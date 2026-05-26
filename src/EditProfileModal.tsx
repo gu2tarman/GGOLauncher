@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "./Modal";
 import { api } from "./api";
-import type { Account, EncryptionType, PathInfo, Profile } from "./types";
+import type {
+  Account,
+  CuoProfileCandidate,
+  EncryptionType,
+  PathInfo,
+  Profile,
+} from "./types";
 
 type Props = {
   open: boolean;
@@ -29,6 +35,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const [showPw, setShowPw] = useState<Record<string, boolean>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [multiWarning, setMultiWarning] = useState<string | null>(null);
+  const [cuoProfileCandidates, setCuoProfileCandidates] = useState<CuoProfileCandidate[]>([]);
 
   // multiWarning 3초 자동 닫힘
   useEffect(() => {
@@ -78,12 +85,37 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   useEffect(() => {
     if (!draft?.cuo_path) {
       setCuoCheck(null);
+      setCuoProfileCandidates([]);
       return;
     }
     const t = setTimeout(() => {
       api.inspectPath(draft.cuo_path!).then(setCuoCheck).catch(console.error);
     }, 300);
     return () => clearTimeout(t);
+  }, [draft?.cuo_path]);
+
+  useEffect(() => {
+    const cuoPath = draft?.cuo_path?.trim();
+    if (!cuoPath) {
+      setCuoProfileCandidates([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api
+        .listCuoProfiles(cuoPath)
+        .then((items) => {
+          if (!cancelled) setCuoProfileCandidates(items);
+        })
+        .catch((e) => {
+          console.warn("[cuo profiles]", e);
+          if (!cancelled) setCuoProfileCandidates([]);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [draft?.cuo_path]);
 
   // UO 경로 유효해지면 client.exe 버전 자동 감지
@@ -103,6 +135,11 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       cancelled = true;
     };
   }, [uoCheck?.valid_uo, draft?.uo_path]);
+
+  const accountCandidateValues = useMemo(
+    () => cuoProfileCandidates.map((c) => c.account),
+    [cuoProfileCandidates]
+  );
 
   if (!draft) return null;
 
@@ -215,6 +252,16 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   };
 
   const canSave = draft.name.trim().length > 0 && draft.server.address.trim().length > 0;
+  const characterCandidatesFor = (accountName: string) => {
+    const normalized = accountName.trim().toLowerCase();
+    if (!normalized) {
+      return uniqueSorted(cuoProfileCandidates.flatMap((c) => c.characters));
+    }
+    const matched = cuoProfileCandidates.find(
+      (c) => c.account.toLowerCase() === normalized
+    );
+    return matched?.characters ?? [];
+  };
 
   const onSaveClick = async () => {
     if (!canSave || !draft) return;
@@ -278,6 +325,14 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         >
           {saveError}
         </div>
+      )}
+
+      {cuoProfileCandidates.length > 0 && (
+        <datalist id="cuo-account-candidates">
+          {accountCandidateValues.map((account) => (
+            <option key={account} value={account} />
+          ))}
+        </datalist>
       )}
 
       {/* Profile Info */}
@@ -454,8 +509,9 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
               <div className="account-fields">
                 <input
                   className="text-input account-username"
-                  placeholder="계정명"
+                  placeholder="계정 입력/선택"
                   value={acc.username}
+                  list="cuo-account-candidates"
                   onChange={(e) =>
                     updateAccount(acc.id, { username: e.target.value })
                   }
@@ -484,14 +540,20 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
                 </div>
                 <input
                   className="text-input account-character"
-                  placeholder="캐릭터명 (선택)"
+                  placeholder="캐릭 입력/선택"
                   value={acc.character_name ?? ""}
+                  list={`cuo-character-candidates-${acc.id}`}
                   onChange={(e) =>
                     updateAccount(acc.id, { character_name: e.target.value })
                   }
                   autoComplete="off"
-                  title="입력하면 MULTI LOGIN 시 해당 캐릭터까지 자동 로그인합니다. 비워두면 서버 선택 단계에서 멈춥니다."
+                  title="CUO 프로필 기록이 있으면 후보로 표시됩니다. 직접 입력도 가능합니다."
                 />
+                <datalist id={`cuo-character-candidates-${acc.id}`}>
+                  {characterCandidatesFor(acc.username).map((character) => (
+                    <option key={character} value={character} />
+                  ))}
+                </datalist>
               </div>
               <button
                 type="button"
@@ -573,4 +635,17 @@ function PathRow({
       </button>
     </div>
   );
+}
+
+function uniqueSorted(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result.sort((a, b) => a.localeCompare(b));
 }

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CuoProfileCandidate,
   FolderKind,
   LauncherManifest,
   NoticeBoard,
@@ -40,6 +41,8 @@ export const api = {
     invoke<string | null>("client_select_directory", { startDir: startDir ?? null }),
   cuoSelectDirectory: (startDir?: string) =>
     invoke<string | null>("cuo_select_directory", { startDir: startDir ?? null }),
+  listCuoProfiles: (cuoPath: string) =>
+    invoke<CuoProfileCandidate[]>("list_cuo_profiles", { cuoPath }),
 
   pluginSelectFile: () => invoke<string | null>("plugin_select_file"),
   importPluginFromZip: () => invoke<string | null>("import_plugin_from_zip"),

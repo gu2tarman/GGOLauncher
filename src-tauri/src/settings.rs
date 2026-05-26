@@ -44,6 +44,9 @@ pub struct UiSettings {
     /// PLAY/MULTI를 한 번이라도 실행했는지 — 온보딩 3단계 자동 체크용.
     #[serde(default)]
     pub first_launch_completed: bool,
+    /// 메인 화면에 노출할 프로필 id. 순서대로 최대 2개.
+    #[serde(default)]
+    pub main_profile_ids: Option<Vec<String>>,
 }
 
 fn default_lang() -> String {
@@ -96,6 +99,34 @@ fn migrate(s: &mut Settings) {
         } else if !p.server.accounts.is_empty() {
             p.server.active_account_id = Some(p.server.accounts[0].id.clone());
         }
+    }
+
+    let valid_ids: std::collections::HashSet<String> =
+        s.profiles.iter().map(|p| p.id.clone()).collect();
+    match &mut s.ui.main_profile_ids {
+        Some(ids) => {
+            ids.retain(|id| valid_ids.contains(id));
+            ids.truncate(2);
+        }
+        None => {
+            s.ui.main_profile_ids = Some(s.profiles.iter().take(2).map(|p| p.id.clone()).collect());
+        }
+    }
+
+    match (&s.active_profile_id, &s.ui.main_profile_ids) {
+        (Some(active), Some(ids)) if !ids.contains(active) => {
+            s.active_profile_id = ids.first().cloned();
+        }
+        (Some(active), _) if !valid_ids.contains(active) => {
+            s.active_profile_id =
+                s.ui.main_profile_ids
+                    .as_ref()
+                    .and_then(|ids| ids.first().cloned());
+        }
+        (None, Some(ids)) if !ids.is_empty() => {
+            s.active_profile_id = ids.first().cloned();
+        }
+        _ => {}
     }
 }
 

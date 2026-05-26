@@ -18,6 +18,11 @@ export interface Account {
   multi_enabled?: boolean | null;
 }
 
+export interface CuoProfileCandidate {
+  account: string;
+  characters: string[];
+}
+
 export interface ServerConfig {
   address: string;
   port: number;
@@ -51,6 +56,8 @@ export interface UiSettings {
   onboarding_dismissed?: boolean;
   /** PLAY/MULTI 한 번이라도 실행했는지 — 온보딩 3단계 자동 체크용 */
   first_launch_completed?: boolean;
+  /** 메인 화면에 노출할 프로필 id. 순서대로 최대 2개 */
+  main_profile_ids?: string[] | null;
 }
 
 export interface Settings {

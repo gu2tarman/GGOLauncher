@@ -1,4 +1,5 @@
 mod crypto;
+mod cuo_profiles;
 mod launcher;
 mod notice;
 mod paths;
@@ -140,6 +141,11 @@ fn detect_folder_kind(path: String) -> FolderKind {
 #[tauri::command]
 fn get_launcher_dir() -> Option<String> {
     paths::launcher_dir()
+}
+
+#[tauri::command]
+fn list_cuo_profiles(cuo_path: String) -> Vec<cuo_profiles::CuoProfileCandidate> {
+    cuo_profiles::list(&cuo_path)
 }
 
 #[tauri::command]
@@ -306,6 +312,7 @@ pub fn run() {
             detect_ggoce_version,
             detect_folder_kind,
             get_launcher_dir,
+            list_cuo_profiles,
             client_select_directory,
             cuo_select_directory,
             cuo_launch,

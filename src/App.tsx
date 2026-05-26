@@ -75,6 +75,9 @@ function LinkButton({ label, url }: LinkButtonProps) {
 
 function activeProfile(settings: Settings | null): Profile | null {
   if (!settings || !settings.active_profile_id) return null;
+  const mainIds = settings.ui?.main_profile_ids;
+  if (mainIds && !mainIds.includes(settings.active_profile_id)) return null;
+  if (mainIds?.length === 0) return null;
   return settings.profiles.find((p) => p.id === settings.active_profile_id) ?? null;
 }
 
@@ -94,7 +97,13 @@ function profileMultiStats(profile: Profile) {
 
 function quickProfiles(settings: Settings | null): Profile[] {
   if (!settings) return [];
-  return settings.profiles.slice(0, 2);
+  const ids = settings.ui?.main_profile_ids;
+  if (ids == null) return settings.profiles.slice(0, 2);
+  if (ids.length === 0) return [];
+  return ids
+    .map((id) => settings.profiles.find((p) => p.id === id))
+    .filter((p): p is Profile => !!p)
+    .slice(0, 2);
 }
 
 type UpdateState =
@@ -344,6 +353,7 @@ function App() {
     : 0;
   const canMultiLogin = canPlay && multiCount > 0;
   const profileOptions = quickProfiles(settings);
+  const hasAnyProfile = (settings?.profiles.length ?? 0) > 0;
 
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -746,6 +756,32 @@ function App() {
                   Change
                 </button>
               </>
+            ) : hasAnyProfile ? (
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "14px 10px",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, lineHeight: 1 }}>◇</div>
+                <div style={{ fontWeight: 600 }}>메인에 표시할 프로필을 선택하세요</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                  프로필 관리에서 최대 2개의 프로필을 선택하면 이곳에 표시됩니다.
+                </div>
+                <button
+                  className="btn-primary btn-primary-sm"
+                  onClick={() => setManageOpen(true)}
+                  title="프로필 관리 모달을 열어 메인 표시 프로필 선택"
+                  style={{ marginTop: 4 }}
+                >
+                  프로필 관리
+                </button>
+              </div>
             ) : (
               <div
                 style={{
@@ -860,11 +896,23 @@ function App() {
                     p.id === updated.id ? updated : p
                   )
                 : [...settings.profiles, updated];
+              const currentMainIds =
+                settings.ui.main_profile_ids ??
+                settings.profiles.slice(0, 2).map((p) => p.id);
+              const main_profile_ids =
+                !exists && currentMainIds.length < 2
+                  ? [...currentMainIds, updated.id]
+                  : currentMainIds;
+              const active_profile_id =
+                settings.active_profile_id ??
+                (main_profile_ids.includes(updated.id)
+                  ? updated.id
+                  : main_profile_ids[0] ?? updated.id);
               const next: Settings = {
                 ...settings,
                 profiles,
-                active_profile_id:
-                  settings.active_profile_id ?? updated.id,
+                active_profile_id,
+                ui: { ...settings.ui, main_profile_ids },
               };
               persistSettings(next);
               setDraftProfile(null);

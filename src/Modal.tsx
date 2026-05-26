@@ -3,7 +3,7 @@ import { useEffect, type ReactNode } from "react";
 type Props = {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
   width?: number;
   /** 헤더 우측, 닫기 버튼 앞에 끼워넣을 액션 (선택). */
   headerActions?: ReactNode;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Modal } from "./Modal";
 import type { Profile, Settings } from "./types";
 
@@ -22,18 +22,8 @@ export function ManageProfilesModal({
   onCreate,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
-  // 서버 호스트별 그룹화
-  const grouped = useMemo(() => {
-    const map = new Map<string, Profile[]>();
-    for (const p of settings.profiles) {
-      const key = `${p.server.address}:${p.server.port}`;
-      const arr = map.get(key) ?? [];
-      arr.push(p);
-      map.set(key, arr);
-    }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [settings.profiles]);
+  const mainProfileIds =
+    settings.ui.main_profile_ids ?? settings.profiles.slice(0, 2).map((p) => p.id);
 
   const onCreateClick = () => {
     const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -55,10 +45,6 @@ export function ManageProfilesModal({
     onCreate(draft);
   };
 
-  const onSetActive = (id: string) => {
-    onChange({ ...settings, active_profile_id: id });
-  };
-
   const onCopy = (p: Profile) => {
     const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     const copy: Profile = { ...p, id, name: `${p.name} (복사)` };
@@ -67,19 +53,59 @@ export function ManageProfilesModal({
 
   const onDeleteConfirmed = (id: string) => {
     const profiles = settings.profiles.filter((p) => p.id !== id);
+    const main_profile_ids = mainProfileIds.filter((profileId) => profileId !== id);
     const active =
       settings.active_profile_id === id
-        ? profiles[0]?.id ?? null
+        ? main_profile_ids[0] ?? null
         : settings.active_profile_id;
-    onChange({ ...settings, profiles, active_profile_id: active });
+    onChange({
+      ...settings,
+      profiles,
+      active_profile_id: active,
+      ui: { ...settings.ui, main_profile_ids },
+    });
     setConfirmDelete(null);
+  };
+
+  const onToggleMainProfile = (id: string) => {
+    if (mainProfileIds.includes(id)) {
+      const main_profile_ids = mainProfileIds.filter((profileId) => profileId !== id);
+      onChange({
+        ...settings,
+        active_profile_id:
+          settings.active_profile_id === id
+            ? main_profile_ids[0] ?? null
+            : settings.active_profile_id,
+        ui: { ...settings.ui, main_profile_ids },
+      });
+      return;
+    }
+
+    if (mainProfileIds.length >= 2) return;
+
+    const main_profile_ids = [...mainProfileIds, id];
+    const active_profile_id =
+      settings.active_profile_id && mainProfileIds.includes(settings.active_profile_id)
+        ? settings.active_profile_id
+        : id;
+
+    onChange({
+      ...settings,
+      active_profile_id,
+      ui: { ...settings.ui, main_profile_ids },
+    });
   };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="프로필 관리"
+      title={
+        <span className="modal-title-with-hint">
+          프로필 관리
+          <span className="modal-title-hint">메인 표시 프로필은 최대 2개까지 선택</span>
+        </span>
+      }
       width={780}
       headerActions={
         <button className="btn-primary btn-primary-sm" onClick={onCreateClick}>
@@ -95,38 +121,46 @@ export function ManageProfilesModal({
       )}
 
       <div className="profile-groups">
-        {grouped.map(([host, list]) => (
-          <section key={host} className="profile-group">
-            <header className="profile-group-head">{host}</header>
+          <section className="profile-group">
             <div className="profile-cards">
-              {list.map((p) => {
-                const isActive = settings.active_profile_id === p.id;
+              {settings.profiles.map((p) => {
+                const isMain = mainProfileIds.includes(p.id);
+                const isCurrent = settings.active_profile_id === p.id;
+                const activeSlot = isMain ? mainProfileIds.indexOf(p.id) + 1 : null;
                 return (
                   <div
                     key={p.id}
-                    className={`profile-card ${isActive ? "is-active" : ""}`}
+                    className={`profile-card ${isMain ? "is-active" : ""} ${
+                      isCurrent ? "is-current" : ""
+                    }`}
                     role="button"
                     tabIndex={0}
-                    title={isActive ? "현재 활성 프로필" : "클릭하여 활성화"}
-                    onClick={() => !isActive && onSetActive(p.id)}
+                    title={
+                      isMain
+                        ? `메인 표시 프로필 ${activeSlot}에서 제외`
+                        : mainProfileIds.length >= 2
+                        ? "메인 표시 프로필은 최대 2개까지 선택할 수 있습니다"
+                        : "클릭하여 메인 표시 프로필로 선택"
+                    }
+                    onClick={() => onToggleMainProfile(p.id)}
                     onKeyDown={(e) => {
-                      if ((e.key === "Enter" || e.key === " ") && !isActive) {
+                      if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        onSetActive(p.id);
+                        onToggleMainProfile(p.id);
                       }
                     }}
                   >
                     <div className="profile-card-main">
                       <div className="profile-card-title">
                         {p.name}
-                        {isActive && <span className="active-badge">ACTIVE</span>}
+                        {activeSlot && (
+                          <span className="active-badge">ACTIVE {activeSlot}</span>
+                        )}
+                        {isCurrent && <span className="current-badge">SELECTED</span>}
                       </div>
                       <div className="profile-card-meta">
-                        <span className="meta-label">계정</span>
-                        <span>{p.server.username || "—"}</span>
-                        <span className="meta-sep">·</span>
-                        <span className="meta-label">포트</span>
-                        <span>{p.server.port}</span>
+                        <span className="meta-label">서버</span>
+                        <span>{p.server.address}:{p.server.port}</span>
                       </div>
                     </div>
                     <div
@@ -160,7 +194,6 @@ export function ManageProfilesModal({
               })}
             </div>
           </section>
-        ))}
       </div>
 
       {/* 삭제 확인 다이얼로그 */}
