@@ -95,6 +95,24 @@ function profileMultiStats(profile: Profile) {
   };
 }
 
+function createInstallProfile(cuoPath: string, count: number): Profile {
+  const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  return {
+    id,
+    name: count === 0 ? "GGO Custom" : `New Profile ${count + 1}`,
+    uo_path: "",
+    cuo_path: cuoPath,
+    client_version: null,
+    server: {
+      address: "login.uoserver.com",
+      port: 2593,
+      encryption: "auto",
+      accounts: [],
+      active_account_id: null,
+    },
+  };
+}
+
 function quickProfiles(settings: Settings | null): Profile[] {
   if (!settings) return [];
   const ids = settings.ui?.main_profile_ids;
@@ -105,6 +123,8 @@ function quickProfiles(settings: Settings | null): Profile[] {
     .filter((p): p is Profile => !!p)
     .slice(0, 2);
 }
+
+const NOTICE_REFRESH_MS = 5 * 60 * 1000;
 
 type UpdateState =
   | { kind: "checking" }
@@ -143,6 +163,7 @@ function App() {
   const [noticeBoard, setNoticeBoard] = useState<NoticeBoardData | null>(null);
   const [noticeError, setNoticeError] = useState<string | null>(null);
   const [noticeRetryNonce, setNoticeRetryNonce] = useState(0);
+  const noticeBoardRef = useRef<NoticeBoardData | null>(null);
 
   useEffect(() => {
     getVersion()
@@ -188,22 +209,30 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    setNoticeBoard(null);
-    setNoticeError(null);
-    api
-      .fetchNotice()
-      .then((board) => {
-        if (cancelled) return;
-        setNoticeBoard(board);
-        setNoticeError(null);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setNoticeBoard(null);
-        setNoticeError(String(e));
-      });
+    const fetchNotice = (showError: boolean) => {
+      api
+        .fetchNotice()
+        .then((board) => {
+          if (cancelled) return;
+          noticeBoardRef.current = board;
+          setNoticeBoard(board);
+          setNoticeError(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          if (showError || noticeBoardRef.current === null) {
+            setNoticeError(String(e));
+          } else {
+            console.warn("[notice refresh]", e);
+          }
+        });
+    };
+
+    fetchNotice(true);
+    const id = window.setInterval(() => fetchNotice(false), NOTICE_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(id);
     };
   }, [noticeRetryNonce]);
 
@@ -525,15 +554,34 @@ function App() {
 
   // 신규 설치 — 사용자가 위치 선택 완료
   const onInstallTo = async (targetPath: string) => {
-    if (!settings || !profile) return;
+    if (!settings) return;
     setInstallPickerOpen(false);
-    // 프로필의 cuo_path 갱신 + 저장
-    const updatedProfile: Profile = { ...profile, cuo_path: targetPath };
+    const currentProfile = profile;
+    const updatedProfile: Profile | null = currentProfile
+      ? { ...currentProfile, cuo_path: targetPath }
+      : null;
+    const createdProfile = updatedProfile
+      ? null
+      : createInstallProfile(targetPath, settings.profiles.length);
+    const installProfile = updatedProfile ?? createdProfile!;
+    const existingMainIds =
+      settings.ui.main_profile_ids ??
+      settings.profiles.slice(0, 2).map((p) => p.id);
+    const main_profile_ids = existingMainIds.includes(installProfile.id)
+      ? existingMainIds
+      : existingMainIds.length < 2
+      ? [...existingMainIds, installProfile.id]
+      : existingMainIds;
+    const nextProfiles = updatedProfile
+      ? settings.profiles.map((p) =>
+          p.id === updatedProfile.id ? updatedProfile : p
+        )
+      : [...settings.profiles, installProfile];
     const next: Settings = {
       ...settings,
-      profiles: settings.profiles.map((p) =>
-        p.id === profile.id ? updatedProfile : p
-      ),
+      profiles: nextProfiles,
+      active_profile_id: settings.active_profile_id ?? installProfile.id,
+      ui: { ...settings.ui, main_profile_ids },
     };
     persistSettings(next);
     // 빈 폴더 또는 새 폴더 → 원본 CUO 아님, allow_original_overwrite=false 면 충분
@@ -623,8 +671,15 @@ function App() {
           <div className={`self-update-banner self-update-${selfUpdate.kind}`}>
             {selfUpdate.kind === "available" && (
               <>
-                <span className="self-update-msg">
-                  🆙 새 런처 버전 <b>v{selfUpdate.manifest.version}</b> 사용 가능
+                <span className="self-update-msg self-update-msg-stacked">
+                  <span>
+                    🆙 새 런처 버전 <b>v{selfUpdate.manifest.version}</b> 사용 가능
+                  </span>
+                  {selfUpdate.manifest.notes && (
+                    <span className="self-update-notes">
+                      {selfUpdate.manifest.notes}
+                    </span>
+                  )}
                 </span>
                 <button className="btn-primary btn-primary-sm" onClick={onSelfUpdateClick}>
                   업데이트 및 재시작

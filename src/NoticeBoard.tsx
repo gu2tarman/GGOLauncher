@@ -33,7 +33,9 @@ export function NoticeBoard({ title, items, loading, error, onRetry }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
-    setExpandedId(null);
+    setExpandedId((cur) =>
+      cur && items?.some((item) => item.id === cur) ? cur : null
+    );
   }, [items]);
 
   return (
@@ -57,10 +59,11 @@ export function NoticeBoard({ title, items, loading, error, onRetry }: Props) {
         {!error && items?.length === 0 && (
           <div className="notice-placeholder">공지가 없습니다</div>
         )}
-        {items?.map((n) => (
+        {items?.map((n, index) => (
           <NoticeItem
             key={n.id}
             notice={n}
+            isLatest={index === 0}
             expanded={expandedId === n.id}
             onToggle={() =>
               setExpandedId((cur) => (cur === n.id ? null : n.id))
@@ -74,17 +77,19 @@ export function NoticeBoard({ title, items, loading, error, onRetry }: Props) {
 
 type ItemProps = {
   notice: Notice;
+  isLatest: boolean;
   expanded: boolean;
   onToggle: () => void;
 };
 
-function NoticeItem({ notice, expanded, onToggle }: ItemProps) {
+function NoticeItem({ notice, isLatest, expanded, onToggle }: ItemProps) {
   const html = useMemo(() => {
     const raw = marked.parse(linkifyInlineCodeUrls(notice.body_md)) as string;
     return DOMPurify.sanitize(raw, SANITIZE_CONFIG);
   }, [notice.body_md]);
 
   const actionLinks = useMemo(() => buildActionLinks(notice), [notice]);
+  const displaySeverity = severityOf(notice, isLatest);
 
   const openNoticeUrl = (url: string) => {
     api.openExternal(url).catch(console.error);
@@ -102,7 +107,7 @@ function NoticeItem({ notice, expanded, onToggle }: ItemProps) {
   };
 
   return (
-    <article className={`notice-item severity-${notice.severity} ${expanded ? "is-expanded" : ""}`}>
+    <article className={`notice-item severity-${displaySeverity} ${expanded ? "is-expanded" : ""}`}>
       <button
         type="button"
         className="notice-item-head"
@@ -110,7 +115,7 @@ function NoticeItem({ notice, expanded, onToggle }: ItemProps) {
         aria-expanded={expanded}
         title={notice.title}
       >
-        <span className="notice-badge">{labelOf(notice.severity)}</span>
+        <span className="notice-badge">{labelOf(displaySeverity)}</span>
         <span className="notice-head-main">
           <span className="notice-title">{notice.title}</span>
           <span className="notice-date">{notice.date}</span>
@@ -145,6 +150,11 @@ function NoticeItem({ notice, expanded, onToggle }: ItemProps) {
       )}
     </article>
   );
+}
+
+function severityOf(notice: Notice, isLatest: boolean): Notice["severity"] {
+  if (notice.severity === "urgent") return "urgent";
+  return isLatest ? "event" : "normal";
 }
 
 function labelOf(s: Notice["severity"]): string {

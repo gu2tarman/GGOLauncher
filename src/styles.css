@@ -274,6 +274,24 @@ button {
   flex: 1;
 }
 
+.self-update-msg-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.self-update-notes {
+  max-width: 640px;
+  color: rgba(26, 14, 0, 0.82);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 활성 계정 pill (프로필명 옆에) */
 .profile-account-pill {
   margin-left: 10px;
