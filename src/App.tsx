@@ -33,7 +33,7 @@ const FALLBACK_SIDEBAR: Sidebar = {
     {
       label: "MARGO",
       buttons: [
-        { label: "Discord", url: "https://discord.gg/VGfYrJFXtH" },
+        { label: "설정 가이드", url: "https://docs.google.com/presentation/d/1iA6vzvoBJPdn_FnCCv4HwOVrhrgPSv4OAhWop-rcqAo/present?usp=sharing" },
         { label: "Website", url: null },
         { label: "오픈카톡", url: null },
       ],
