@@ -44,6 +44,9 @@ pub struct UiSettings {
     /// PLAY/MULTI를 한 번이라도 실행했는지 — 온보딩 3단계 자동 체크용.
     #[serde(default)]
     pub first_launch_completed: bool,
+    /// 설정 가이드를 한 번이라도 열었는지(영구). false면 사이드바 버튼 강조.
+    #[serde(default)]
+    pub guide_opened: bool,
     /// 메인 화면에 노출할 프로필 id. 순서대로 최대 2개.
     #[serde(default)]
     pub main_profile_ids: Option<Vec<String>>,

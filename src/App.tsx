@@ -52,23 +52,34 @@ const FALLBACK_SIDEBAR: Sidebar = {
   ],
 };
 
-type LinkButtonProps = { label: string; url?: string };
+const GUIDE_LABEL = "설정 가이드";
 
-function LinkButton({ label, url }: LinkButtonProps) {
+type LinkButtonProps = {
+  label: string;
+  url?: string;
+  highlight?: boolean;
+  onActivate?: () => void;
+};
+
+function LinkButton({ label, url, highlight, onActivate }: LinkButtonProps) {
   const disabled = !url;
   const onClick = () => {
     if (!url) return;
+    onActivate?.();
     api.openExternal(url).catch(console.error);
   };
   return (
     <button
-      className={`side-btn ${disabled ? "side-btn-disabled" : ""}`}
+      className={`side-btn ${disabled ? "side-btn-disabled" : ""} ${
+        highlight ? "side-btn-highlight" : ""
+      }`}
       onClick={onClick}
       disabled={disabled}
       title={disabled ? "준비 중" : url}
     >
       {label}
       {disabled && <span className="badge-soon">준비중</span>}
+      {highlight && !disabled && <span className="badge-must">필독</span>}
     </button>
   );
 }
@@ -362,6 +373,15 @@ function App() {
     api.saveSettings(next).catch((e) => console.error("save failed:", e));
   };
 
+  /** 설정 가이드를 1회 이상 열었다고 영구 기록 (사이드바 강조 해제). */
+  const markGuideOpened = () => {
+    if (!settings || settings.ui?.guide_opened) return;
+    persistSettings({
+      ...settings,
+      ui: { ...settings.ui, guide_opened: true },
+    });
+  };
+
   const profile = activeProfile(settings);
   const hasProfile = !!profile;
   const hasActivePlugin = !!settings?.plugins.find((p) => p.enabled);
@@ -642,13 +662,18 @@ function App() {
         {sidebar.groups.map((g) => (
           <div key={g.label} className="btn-group">
             <div className="btn-group-label">{g.label}</div>
-            {g.buttons.map((b, i) => (
-              <LinkButton
-                key={`${b.label}-${i}`}
-                label={b.label}
-                url={b.url ?? undefined}
-              />
-            ))}
+            {g.buttons.map((b, i) => {
+              const isGuide = b.label === GUIDE_LABEL;
+              return (
+                <LinkButton
+                  key={`${b.label}-${i}`}
+                  label={b.label}
+                  url={b.url ?? undefined}
+                  highlight={isGuide && !settings?.ui?.guide_opened}
+                  onActivate={isGuide ? markGuideOpened : undefined}
+                />
+              );
+            })}
           </div>
         ))}
       </aside>

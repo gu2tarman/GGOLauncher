@@ -170,6 +170,52 @@ button {
   letter-spacing: 0.5px;
 }
 
+/* 설정 가이드 미열람 강조 — 은은한 박동 글로우 (클릭 1회 후 영구 해제) */
+.side-btn-highlight {
+  border-color: var(--accent-teal);
+  animation: side-btn-pulse 1.8s ease-in-out infinite;
+}
+
+/* hover 시 펄스 멈춰 일반 버튼처럼 깔끔하게 */
+.side-btn-highlight:hover:not(:disabled) {
+  animation: none;
+}
+
+@keyframes side-btn-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0);
+    border-color: var(--border-soft);
+  }
+  50% {
+    box-shadow: 0 0 10px 1px rgba(45, 212, 191, 0.45);
+    border-color: var(--accent-teal);
+  }
+}
+
+/* 모션 최소화 환경: 애니메이션 대신 정적 글로우 유지 */
+@media (prefers-reduced-motion: reduce) {
+  .side-btn-highlight {
+    animation: none;
+    box-shadow: 0 0 8px 1px rgba(45, 212, 191, 0.4);
+    border-color: var(--accent-teal);
+  }
+}
+
+/* "필독" 배지 — badge-soon과 동일 레이아웃, 강조색 */
+.badge-must {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: 9px;
+  background: var(--accent-teal);
+  color: var(--bg-deep);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
 /* ── Right column ───────────────────────────────────────── */
 .right-column {
   display: flex;
@@ -179,12 +225,12 @@ button {
   min-height: 0;
 }
 
-/* Top actions: PLAY 60% + Update 40%, 80px tall */
+/* Top actions: PLAY 60% + Update 40%, 130px tall */
 .top-actions {
   display: grid;
   grid-template-columns: 3fr 2fr;
   gap: 12px;
-  height: 80px;
+  height: 130px;
 }
 
 /* 3등분: PLAY 35% / MULTI LOGIN 35% / UPDATE 30% */
@@ -194,7 +240,7 @@ button {
 
 .btn-sublabel {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.6px;
   opacity: 0.75;
@@ -205,7 +251,7 @@ button {
 .btn-multi {
   background: linear-gradient(135deg, var(--accent-purple) 0%, #6d3fdc 100%);
   color: #fff;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: 1.5px;
   border: none;
@@ -237,7 +283,7 @@ button {
 
 /* PLAY 버튼 폰트 사이즈 조정 (3등분으로 좁아져서) */
 .top-actions-3col .btn-play {
-  font-size: 18px;
+  font-size: 22px;
 }
 
 /* 런처 자기 업데이트 배너 */
@@ -393,7 +439,7 @@ button {
 .btn-play {
   background: linear-gradient(135deg, var(--accent-teal) 0%, var(--accent-teal-2) 100%);
   color: #04231e;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: 2px;
   border-radius: var(--radius-lg);
@@ -413,7 +459,7 @@ button {
 .btn-update {
   background: var(--bg-panel);
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);

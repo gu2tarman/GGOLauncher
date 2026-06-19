@@ -56,6 +56,8 @@ export interface UiSettings {
   onboarding_dismissed?: boolean;
   /** PLAY/MULTI 한 번이라도 실행했는지 — 온보딩 3단계 자동 체크용 */
   first_launch_completed?: boolean;
+  /** 설정 가이드를 한 번이라도 열었는지 (영구) — false면 사이드바 버튼 강조 */
+  guide_opened?: boolean;
   /** 메인 화면에 노출할 프로필 id. 순서대로 최대 2개 */
   main_profile_ids?: string[] | null;
 }
