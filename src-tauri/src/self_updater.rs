@@ -9,8 +9,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/gu2tarman/ggoce-deploy/main/launcher/manifest.json";
+/// 런처 manifest 후보 URL (순서대로 시도). raw 차단 환경 폴백용 jsDelivr 미러 포함.
+const MANIFEST_URLS: &[&str] = &[
+    "https://raw.githubusercontent.com/gu2tarman/ggoce-deploy/main/launcher/manifest.json",
+    "https://cdn.jsdelivr.net/gh/gu2tarman/ggoce-deploy@main/launcher/manifest.json",
+];
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -234,15 +237,29 @@ async fn fetch_manifest() -> Result<LauncherManifest, String> {
         .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
-    let resp = client
-        .get(MANIFEST_URL)
-        .send()
-        .await
-        .map_err(|e| format!("런처 manifest 다운로드 실패: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("manifest HTTP {}", resp.status()));
+    // 1순위(raw) 실패 시 2순위(jsDelivr)로 폴백. 어느 소스·무슨 에러였는지 누적.
+    let mut errors = String::new();
+    for url in MANIFEST_URLS {
+        match client.get(*url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                return resp
+                    .json::<LauncherManifest>()
+                    .await
+                    .map_err(|e| format!("manifest JSON 파싱 실패: {e}"));
+            }
+            Ok(resp) => {
+                if !errors.is_empty() {
+                    errors.push_str(" | ");
+                }
+                errors.push_str(&format!("[{url}] HTTP {}", resp.status()));
+            }
+            Err(e) => {
+                if !errors.is_empty() {
+                    errors.push_str(" | ");
+                }
+                errors.push_str(&format!("[{url}] {e}"));
+            }
+        }
     }
-    resp.json::<LauncherManifest>()
-        .await
-        .map_err(|e| format!("manifest JSON 파싱 실패: {e}"))
+    Err(format!("런처 manifest 가져오기 실패 (모든 소스): {errors}"))
 }

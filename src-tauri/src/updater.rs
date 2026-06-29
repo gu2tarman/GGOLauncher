@@ -88,6 +88,39 @@ fn build_manifest_file_url(base_url: &str, safe_path: &SafeManifestPath) -> Resu
         .map_err(|e| format!("manifest 파일 URL 조합 실패: {e}"))
 }
 
+/// raw.githubusercontent.com base_url을 jsDelivr 미러 base로 변환.
+/// raw 형식이 아니면 None (미러 폴백 없음).
+///   raw:      https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{rest}
+///   jsDelivr: https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{rest}
+fn mirror_base_url(base_url: &str) -> Option<String> {
+    const RAW_PREFIX: &str = "https://raw.githubusercontent.com/";
+    let rest = base_url.strip_prefix(RAW_PREFIX)?;
+    let mut parts = rest.splitn(4, '/');
+    let owner = parts.next().filter(|s| !s.is_empty())?;
+    let repo = parts.next().filter(|s| !s.is_empty())?;
+    let branch = parts.next().filter(|s| !s.is_empty())?;
+    let tail = parts.next().unwrap_or("");
+    Some(format!(
+        "https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{tail}"
+    ))
+}
+
+/// 한 파일의 다운로드 후보 URL 목록 (1순위 base_url + 가능하면 jsDelivr 미러).
+fn build_file_url_candidates(
+    base_url: &str,
+    safe: &SafeManifestPath,
+) -> Result<Vec<String>, String> {
+    let mut urls = vec![build_manifest_file_url(base_url, safe)?];
+    if let Some(mirror) = mirror_base_url(base_url) {
+        if let Ok(u) = build_manifest_file_url(&mirror, safe) {
+            if u != urls[0] {
+                urls.push(u);
+            }
+        }
+    }
+    Ok(urls)
+}
+
 /// 최종 dest가 base 안에 있는지 확인 (canonicalize 기반, 미존재 파일이면 부모 기준).
 fn assert_inside_base(base: &Path, dest: &Path) -> Result<(), String> {
     let base_real = base
@@ -113,8 +146,13 @@ fn assert_inside_base(base: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-const MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/gu2tarman/ggoce-deploy/main/client/manifest.json";
+/// manifest 후보 URL (순서대로 시도).
+/// 1순위 raw가 프록시·보안SW·SNI검열로 막힌 환경을 위해 2순위로 다른 CDN(jsDelivr) 미러를 둔다.
+/// 둘은 같은 repo 파일을 서빙하므로 내용이 동일하다 (jsDelivr는 최대 12h 캐시 지연 가능).
+const MANIFEST_URLS: &[&str] = &[
+    "https://raw.githubusercontent.com/gu2tarman/ggoce-deploy/main/client/manifest.json",
+    "https://cdn.jsdelivr.net/gh/gu2tarman/ggoce-deploy@main/client/manifest.json",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateManifest {
@@ -327,15 +365,9 @@ where
             dest.extension().and_then(|s| s.to_str()).unwrap_or("")
         ));
 
-        let url = build_manifest_file_url(&check.manifest.base_url, &safe)?;
-        let resp = client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("다운로드 실패 {url}: {e}"))?;
-        if !resp.status().is_success() {
-            return Err(format!("HTTP {} ({url})", resp.status()));
-        }
+        // base_url(raw)로 만든 URL 우선, 실패 시 jsDelivr 미러로 폴백.
+        let urls = build_file_url_candidates(&check.manifest.base_url, &safe)?;
+        let resp = fetch_first_ok(&client, &urls).await?;
 
         let mut file = tokio::fs::File::create(&tmp)
             .await
@@ -500,15 +532,35 @@ async fn fetch_manifest() -> Result<UpdateManifest, String> {
         .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
-    let resp = client
-        .get(MANIFEST_URL)
-        .send()
-        .await
-        .map_err(|e| format!("manifest 다운로드 실패: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("manifest HTTP {}", resp.status()));
-    }
+    let urls: Vec<String> = MANIFEST_URLS.iter().map(|s| s.to_string()).collect();
+    let resp = fetch_first_ok(&client, &urls).await?;
     resp.json::<UpdateManifest>()
         .await
         .map_err(|e| format!("manifest JSON 파싱 실패: {e}"))
+}
+
+/// urls를 순서대로 GET. 첫 2xx 응답을 반환. 모두 실패면 어느 소스·무슨 에러였는지 누적.
+async fn fetch_first_ok(
+    client: &reqwest::Client,
+    urls: &[String],
+) -> Result<reqwest::Response, String> {
+    let mut errors = String::new();
+    for url in urls {
+        match client.get(url).send().await {
+            Ok(resp) if resp.status().is_success() => return Ok(resp),
+            Ok(resp) => {
+                if !errors.is_empty() {
+                    errors.push_str(" | ");
+                }
+                errors.push_str(&format!("[{url}] HTTP {}", resp.status()));
+            }
+            Err(e) => {
+                if !errors.is_empty() {
+                    errors.push_str(" | ");
+                }
+                errors.push_str(&format!("[{url}] {e}"));
+            }
+        }
+    }
+    Err(format!("다운로드 실패 (모든 소스): {errors}"))
 }
