@@ -52,7 +52,8 @@ const FALLBACK_SIDEBAR: Sidebar = {
   ],
 };
 
-const GUIDE_LABEL = "설정 가이드";
+const isGuideButtonPosition = (groupIndex: number, buttonIndex: number) =>
+  groupIndex === 0 && buttonIndex === 0;
 
 type LinkButtonProps = {
   label: string;
@@ -659,14 +660,14 @@ function App() {
 
         <ServerStatusBadge />
 
-        {sidebar.groups.map((g) => (
+        {sidebar.groups.map((g, groupIndex) => (
           <div key={g.label} className="btn-group">
             <div className="btn-group-label">{g.label}</div>
-            {g.buttons.map((b, i) => {
-              const isGuide = b.label === GUIDE_LABEL;
+            {g.buttons.map((b, buttonIndex) => {
+              const isGuide = isGuideButtonPosition(groupIndex, buttonIndex);
               return (
                 <LinkButton
-                  key={`${b.label}-${i}`}
+                  key={`${b.label}-${buttonIndex}`}
                   label={b.label}
                   url={b.url ?? undefined}
                   highlight={isGuide && !settings?.ui?.guide_opened}
