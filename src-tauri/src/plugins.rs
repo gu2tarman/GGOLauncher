@@ -10,25 +10,30 @@ pub fn plugins_root() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// .dll 또는 .exe 단일 파일 선택. 사용자가 직접 둔 위치 그대로 사용 (복사 안 함).
-pub async fn pick_plugin_file() -> Option<String> {
-    rfd::AsyncFileDialog::new()
-        .set_title("플러그인 파일 선택 (.dll / .exe)")
-        .add_filter("Plugin", &["dll", "exe"])
-        .pick_file()
-        .await
-        .map(|h| h.path().to_string_lossy().into_owned())
-}
-
-/// .zip 선택 후 plugins/<name>/에 추출. 반환: 추출된 진입 .dll 절대 경로.
-pub async fn import_from_zip() -> Result<Option<String>, String> {
+/// .dll/.exe는 원래 위치 그대로 등록하고, .zip은 plugins/<name>/에 추출한다.
+/// 반환: 런처 설정에 저장할 플러그인 절대 경로.
+pub async fn add_plugin() -> Result<Option<String>, String> {
     let handle = rfd::AsyncFileDialog::new()
-        .set_title("플러그인 ZIP 선택")
-        .add_filter("Plugin ZIP", &["zip"])
+        .set_title("플러그인 추가 (.dll, .exe, .zip)")
+        .add_filter("Plugin", &["dll", "exe", "zip"])
         .pick_file()
         .await;
     let Some(handle) = handle else { return Ok(None) };
-    let zip_path = handle.path().to_path_buf();
+    let selected_path = handle.path().to_path_buf();
+    let extension = selected_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if extension == "dll" || extension == "exe" {
+        return Ok(Some(selected_path.to_string_lossy().into_owned()));
+    }
+    if extension != "zip" {
+        return Err("지원하지 않는 플러그인 파일입니다 (.dll, .exe, .zip만 가능)".into());
+    }
+
+    let zip_path = selected_path;
     let name = zip_path
         .file_stem()
         .and_then(|s| s.to_str())

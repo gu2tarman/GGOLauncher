@@ -225,17 +225,19 @@ button {
   min-height: 0;
 }
 
-/* Top actions: PLAY 60% + Update 40%, 130px tall */
+/* 핵심 실행 영역은 배너/공지 크기와 무관하게 충분한 클릭 높이를 유지. */
 .top-actions {
   display: grid;
   grid-template-columns: 3fr 2fr;
   gap: 12px;
-  height: 130px;
+  height: 64px;
+  min-height: 64px;
+  flex: 0 0 64px;
 }
 
-/* 3등분: PLAY 35% / MULTI LOGIN 35% / UPDATE 30% */
+/* PLAY / MULTI를 우선하고 상태성 업데이트 버튼은 조금 좁게. */
 .top-actions-3col {
-  grid-template-columns: 7fr 7fr 6fr;
+  grid-template-columns: 5fr 5fr 3fr;
 }
 
 .btn-sublabel {
@@ -336,19 +338,6 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 활성 계정 pill (프로필명 옆에) */
-.profile-account-pill {
-  margin-left: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  color: var(--accent-purple);
-  background: rgba(139, 92, 246, 0.12);
-  padding: 2px 8px;
-  border-radius: 8px;
-  vertical-align: middle;
 }
 
 /* Info 토스트 (Error 토스트와 다른 색) */
@@ -542,6 +531,9 @@ button {
 
 /* Profile box */
 .profile-box {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 140px;
   background: var(--bg-panel);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
@@ -558,7 +550,7 @@ button {
 }
 
 .profile-title {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: 1.5px;
   color: var(--accent-teal);
@@ -573,17 +565,35 @@ button {
   border-radius: 6px;
 }
 
-.profile-body {
+.profile-title-group {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.profile-current {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-body {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 12px;
+  min-height: 64px;
 }
 
 .profile-quick-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
 }
@@ -591,15 +601,17 @@ button {
 .profile-quick-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
   min-width: 0;
-  padding: 10px 12px;
+  min-height: 64px;
+  padding: 9px 10px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.025);
   color: var(--text-primary);
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.08s;
 }
@@ -631,6 +643,21 @@ button {
   white-space: nowrap;
 }
 
+.profile-quick-name {
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+.profile-quick-meta {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .profile-quick-addr,
 .profile-addr {
   font-size: 13px;
@@ -646,14 +673,53 @@ button {
 .btn-change {
   background: var(--accent-purple);
   color: #fff;
-  padding: 8px 18px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
   border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 800;
+  align-self: auto;
+  white-space: nowrap;
 }
 
 .btn-change:hover {
   filter: brightness(1.1);
+}
+
+.profile-side-controls {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.profile-page-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  flex-shrink: 0;
+  align-self: auto;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-soft);
+}
+
+.btn-profile-page {
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.btn-profile-page:hover {
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--accent-teal);
 }
 
 /* Plugin panel (inline toggle) */
@@ -665,7 +731,7 @@ button {
 }
 
 .panel-header {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   letter-spacing: 1px;
   color: var(--accent-teal);
@@ -879,7 +945,7 @@ button {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
-  color: var(--text-mute);
+  color: var(--text-primary);
 }
 
 .modal-close {
@@ -1079,6 +1145,7 @@ select.text-input {
 }
 
 .profile-card {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1087,26 +1154,56 @@ select.text-input {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   padding: 12px 16px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s, opacity 0.12s, transform 0.12s;
 }
 
-.profile-card:hover:not(.is-active) {
+.profile-card:hover {
   background: var(--bg-panel-soft);
-  border-color: var(--accent-teal);
+  border-color: rgba(45, 212, 191, 0.45);
 }
 
 .profile-card:active {
-  transform: translateY(1px);
-}
-
-.profile-card.is-active {
-  border-color: var(--accent-teal);
-  background: rgba(45, 212, 191, 0.06);
+  cursor: grabbing;
 }
 
 .profile-card.is-current {
+  border-color: var(--accent-teal);
+  background: rgba(45, 212, 191, 0.06);
   box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.35);
+}
+
+.profile-card.is-dragging {
+  opacity: 0.72;
+  border-color: var(--accent-teal);
+  background: rgba(45, 212, 191, 0.1);
+  transform: scale(0.99);
+}
+
+.profile-card.is-dragging::before {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: -6px;
+  left: 8px;
+  right: 8px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent-teal);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.95);
+  pointer-events: none;
+}
+
+.profile-order-number {
+  width: 22px;
+  flex-shrink: 0;
+  color: var(--text-mute);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .profile-card:focus-visible {
@@ -1168,6 +1265,10 @@ select.text-input {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.profile-card-actions button {
+  cursor: pointer;
 }
 
 .btn-action {

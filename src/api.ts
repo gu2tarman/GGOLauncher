@@ -44,8 +44,7 @@ export const api = {
   listCuoProfiles: (cuoPath: string) =>
     invoke<CuoProfileCandidate[]>("list_cuo_profiles", { cuoPath }),
 
-  pluginSelectFile: () => invoke<string | null>("plugin_select_file"),
-  importPluginFromZip: () => invoke<string | null>("import_plugin_from_zip"),
+  addPlugin: () => invoke<string | null>("add_plugin"),
 
   cuoLaunch: (profileId: string, accountId?: string | null) =>
     invoke<void>("cuo_launch", { profileId, accountId: accountId ?? null }),

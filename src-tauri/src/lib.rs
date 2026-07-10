@@ -195,13 +195,8 @@ async fn cuo_launch_multi(profile_id: String, delay_ms: Option<u64>) -> Result<u
 
 // ── 플러그인 ──────────────────────────────────────────────
 #[tauri::command]
-async fn plugin_select_file() -> Option<String> {
-    plugins::pick_plugin_file().await
-}
-
-#[tauri::command]
-async fn import_plugin_from_zip() -> Result<Option<String>, String> {
-    plugins::import_from_zip().await
+async fn add_plugin() -> Result<Option<String>, String> {
+    plugins::add_plugin().await
 }
 
 // ── 공지사항 ──────────────────────────────────────────────
@@ -319,8 +314,7 @@ pub fn run() {
             cuo_launch_multi,
             encrypt_password,
             decrypt_password,
-            plugin_select_file,
-            import_plugin_from_zip,
+            add_plugin,
             fetch_notice,
             fetch_sidebar,
             fetch_server_endpoint,

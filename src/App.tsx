@@ -34,7 +34,7 @@ const FALLBACK_SIDEBAR: Sidebar = {
       label: "MARGO",
       buttons: [
         { label: "설정 가이드", url: "https://docs.google.com/presentation/d/1iA6vzvoBJPdn_FnCCv4HwOVrhrgPSv4OAhWop-rcqAo/present?usp=sharing" },
-        { label: "Website", url: null },
+        { label: "홈페이지", url: null },
         { label: "오픈카톡", url: null },
       ],
     },
@@ -87,9 +87,6 @@ function LinkButton({ label, url, highlight, onActivate }: LinkButtonProps) {
 
 function activeProfile(settings: Settings | null): Profile | null {
   if (!settings || !settings.active_profile_id) return null;
-  const mainIds = settings.ui?.main_profile_ids;
-  if (mainIds && !mainIds.includes(settings.active_profile_id)) return null;
-  if (mainIds?.length === 0) return null;
   return settings.profiles.find((p) => p.id === settings.active_profile_id) ?? null;
 }
 
@@ -111,7 +108,7 @@ function createInstallProfile(cuoPath: string, count: number): Profile {
   const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   return {
     id,
-    name: count === 0 ? "GGO Custom" : `New Profile ${count + 1}`,
+    name: count === 0 ? "GGO Custom" : `새 프로필 ${count + 1}`,
     uo_path: "",
     cuo_path: cuoPath,
     client_version: null,
@@ -125,18 +122,8 @@ function createInstallProfile(cuoPath: string, count: number): Profile {
   };
 }
 
-function quickProfiles(settings: Settings | null): Profile[] {
-  if (!settings) return [];
-  const ids = settings.ui?.main_profile_ids;
-  if (ids == null) return settings.profiles.slice(0, 2);
-  if (ids.length === 0) return [];
-  return ids
-    .map((id) => settings.profiles.find((p) => p.id === id))
-    .filter((p): p is Profile => !!p)
-    .slice(0, 2);
-}
-
 const NOTICE_REFRESH_MS = 5 * 60 * 1000;
+const PROFILE_PAGE_SIZE = 4;
 
 type UpdateState =
   | { kind: "checking" }
@@ -165,6 +152,7 @@ function App() {
     | { kind: "error"; message: string };
   const [selfUpdate, setSelfUpdate] = useState<SelfUpdate>({ kind: "idle" });
   const [manageOpen, setManageOpen] = useState(false);
+  const [profilePage, setProfilePage] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   // 새 프로필 드래프트 — 저장 누르기 전까지 settings 미반영. id는 미리 생성됨.
   const [draftProfile, setDraftProfile] = useState<Profile | null>(null);
@@ -254,6 +242,15 @@ function App() {
       .then(setSettings)
       .catch((e) => setLoadError(String(e)));
   }, []);
+
+  // 현재 사용 중인 프로필이 어느 페이지에 있든 메인에서 바로 확인되도록 맞춘다.
+  useEffect(() => {
+    if (!settings?.active_profile_id) return;
+    const index = settings.profiles.findIndex(
+      (profile) => profile.id === settings.active_profile_id
+    );
+    if (index >= 0) setProfilePage(Math.floor(index / PROFILE_PAGE_SIZE));
+  }, [settings?.active_profile_id, settings?.profiles]);
 
   // 활성 프로필 cuo_path 기반으로 업데이트 체크 (프로필 변경 시 재실행)
   useEffect(() => {
@@ -402,7 +399,16 @@ function App() {
       }).length
     : 0;
   const canMultiLogin = canPlay && multiCount > 0;
-  const profileOptions = quickProfiles(settings);
+  const totalProfilePages = Math.max(
+    1,
+    Math.ceil((settings?.profiles.length ?? 0) / PROFILE_PAGE_SIZE)
+  );
+  const visibleProfilePage = Math.min(profilePage, totalProfilePages - 1);
+  const profileOptions =
+    settings?.profiles.slice(
+      visibleProfilePage * PROFILE_PAGE_SIZE,
+      (visibleProfilePage + 1) * PROFILE_PAGE_SIZE
+    ) ?? [];
   const hasAnyProfile = (settings?.profiles.length ?? 0) > 0;
 
   const [launching, setLaunching] = useState(false);
@@ -436,7 +442,7 @@ function App() {
   const onMultiLogin = async () => {
     if (!profile) return;
     if (accountCount === 0) {
-      setLaunchError("등록된 계정이 없습니다. Edit Profile에서 추가하세요.");
+      setLaunchError("등록된 계정이 없습니다. 프로필 편집에서 추가하세요.");
       return;
     }
     setLaunching(true);
@@ -585,14 +591,6 @@ function App() {
       ? null
       : createInstallProfile(targetPath, settings.profiles.length);
     const installProfile = updatedProfile ?? createdProfile!;
-    const existingMainIds =
-      settings.ui.main_profile_ids ??
-      settings.profiles.slice(0, 2).map((p) => p.id);
-    const main_profile_ids = existingMainIds.includes(installProfile.id)
-      ? existingMainIds
-      : existingMainIds.length < 2
-      ? [...existingMainIds, installProfile.id]
-      : existingMainIds;
     const nextProfiles = updatedProfile
       ? settings.profiles.map((p) =>
           p.id === updatedProfile.id ? updatedProfile : p
@@ -602,7 +600,6 @@ function App() {
       ...settings,
       profiles: nextProfiles,
       active_profile_id: settings.active_profile_id ?? installProfile.id,
-      ui: { ...settings.ui, main_profile_ids },
     };
     persistSettings(next);
     // 빈 폴더 또는 새 폴더 → 원본 CUO 아님, allow_original_overwrite=false 면 충분
@@ -763,7 +760,7 @@ function App() {
                 : !hasActivePlugin
                 ? "플러그인을 먼저 등록·선택하세요"
                 : multiCount === 0
-                ? "Edit Profile에서 MULTI 대상 계정을 선택하세요"
+                ? "프로필 편집에서 MULTI 대상 계정을 선택하세요"
                 : `${multiCount}개 계정 순차 자동 로그인`
             }
           >
@@ -793,7 +790,14 @@ function App() {
 
         <section className="profile-box">
           <header className="profile-header">
-            <span className="profile-title">DESKTOP CLIENT SETTINGS</span>
+            <span className="profile-title-group">
+              <span className="profile-title">빠른 프로필</span>
+              {profile && (
+                <span className="profile-current" title={`현재 사용 중: ${profile.name}`}>
+                  현재: {profile.name}
+                </span>
+              )}
+            </span>
             <span className="profile-version">
               ClassicUO GGO CE {ggoceVersion ? `v${ggoceVersion}` : "v—"}
             </span>
@@ -801,7 +805,15 @@ function App() {
           <div className="profile-body">
             {settings && profileOptions.length > 0 ? (
               <>
-                <div className="profile-quick-grid">
+                <div
+                  className="profile-quick-grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.max(
+                      1,
+                      profileOptions.length
+                    )}, minmax(0, 1fr))`,
+                  }}
+                >
                   {profileOptions.map((p) => {
                     const stats = profileMultiStats(p);
                     const isActive = p.id === settings.active_profile_id;
@@ -816,26 +828,56 @@ function App() {
                       >
                         <span className="profile-quick-name">
                           {p.name}
-                          {stats.total > 0 && (
-                            <span className="profile-account-pill">
-                              MULTI {stats.runnable}/{stats.total}계정
-                            </span>
-                          )}
                         </span>
-                        <span className="profile-quick-addr">
-                          {p.server.address}:{p.server.port}
+                        <span className="profile-quick-meta">
+                          {stats.total > 0
+                            ? `${stats.runnable}/${stats.total} 계정`
+                            : "등록 계정 없음"}
                         </span>
                       </button>
                     );
                   })}
                 </div>
-                <button
-                  className="btn-change"
-                  onClick={() => setManageOpen(true)}
-                  title="프로필 전환 / 추가 / 편집"
-                >
-                  Change
-                </button>
+                <div className="profile-side-controls">
+                  <button
+                    className="btn-change"
+                    onClick={() => setManageOpen(true)}
+                    title="프로필 전환 / 추가 / 편집"
+                  >
+                    프로필 관리
+                  </button>
+                  {totalProfilePages > 1 && (
+                    <div className="profile-page-controls">
+                    <button
+                      type="button"
+                      className="btn-profile-page"
+                      onClick={() =>
+                        setProfilePage(
+                          (visibleProfilePage - 1 + totalProfilePages) %
+                            totalProfilePages
+                        )
+                      }
+                      title="이전 프로필 묶음"
+                      aria-label="이전 프로필 묶음"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-profile-page"
+                      onClick={() =>
+                        setProfilePage(
+                          (visibleProfilePage + 1) % totalProfilePages
+                        )
+                      }
+                      title="다음 프로필 묶음"
+                      aria-label="다음 프로필 묶음"
+                    >
+                      ›
+                    </button>
+                    </div>
+                  )}
+                </div>
               </>
             ) : hasAnyProfile ? (
               <div
@@ -852,7 +894,7 @@ function App() {
                 <div style={{ fontSize: 24, lineHeight: 1 }}>◇</div>
                 <div style={{ fontWeight: 600 }}>메인에 표시할 프로필을 선택하세요</div>
                 <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  프로필 관리에서 최대 2개의 프로필을 선택하면 이곳에 표시됩니다.
+                  프로필 관리에서 순서를 정하면 앞의 프로필부터 이곳에 표시됩니다.
                 </div>
                 <button
                   className="btn-primary btn-primary-sm"
@@ -977,23 +1019,14 @@ function App() {
                     p.id === updated.id ? updated : p
                   )
                 : [...settings.profiles, updated];
-              const currentMainIds =
-                settings.ui.main_profile_ids ??
-                settings.profiles.slice(0, 2).map((p) => p.id);
-              const main_profile_ids =
-                !exists && currentMainIds.length < 2
-                  ? [...currentMainIds, updated.id]
-                  : currentMainIds;
               const active_profile_id =
                 settings.active_profile_id ??
-                (main_profile_ids.includes(updated.id)
-                  ? updated.id
-                  : main_profile_ids[0] ?? updated.id);
+                profiles[0]?.id ??
+                updated.id;
               const next: Settings = {
                 ...settings,
                 profiles,
                 active_profile_id,
-                ui: { ...settings.ui, main_profile_ids },
               };
               persistSettings(next);
               setDraftProfile(null);

@@ -535,7 +535,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
                       setShowPw((s) => ({ ...s, [acc.id]: !s[acc.id] }))
                     }
                   >
-                    {reveal ? "숨김" : "보임"}
+                    {reveal ? "숨기기" : "보기"}
                   </button>
                 </div>
                 <input

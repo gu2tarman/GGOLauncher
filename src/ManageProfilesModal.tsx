@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Modal } from "./Modal";
 import type { Profile, Settings } from "./types";
 
@@ -22,14 +22,53 @@ export function ManageProfilesModal({
   onCreate,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const mainProfileIds =
-    settings.ui.main_profile_ids ?? settings.profiles.slice(0, 2).map((p) => p.id);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
+  const pointerDragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null>(null);
+  const previewOrderRef = useRef<string[] | null>(null);
+
+  const displayProfiles = (previewOrder ?? settings.profiles.map((p) => p.id))
+    .map((id) => settings.profiles.find((profile) => profile.id === id))
+    .filter((profile): profile is Profile => !!profile);
+
+  const updatePreviewOrder = (next: string[] | null) => {
+    previewOrderRef.current = next;
+    setPreviewOrder(next);
+  };
+
+  const clearDragState = () => {
+    pointerDragRef.current = null;
+    setDraggedId(null);
+    updatePreviewOrder(null);
+  };
+
+  const reorderIds = (
+    order: string[],
+    id: string,
+    targetId: string,
+    afterTarget: boolean
+  ) => {
+    if (id === targetId) return order;
+    const next = [...order];
+    const from = next.indexOf(id);
+    const target = next.indexOf(targetId);
+    if (from < 0 || target < 0) return order;
+    const [moved] = next.splice(from, 1);
+    const targetAfterRemoval = next.indexOf(targetId);
+    next.splice(targetAfterRemoval + (afterTarget ? 1 : 0), 0, moved);
+    return next;
+  };
 
   const onCreateClick = () => {
     const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     const draft: Profile = {
       id,
-      name: `New Profile ${settings.profiles.length + 1}`,
+      name: `새 프로필 ${settings.profiles.length + 1}`,
       uo_path: "",
       cuo_path: null,
       client_version: null,
@@ -52,48 +91,18 @@ export function ManageProfilesModal({
   };
 
   const onDeleteConfirmed = (id: string) => {
+    const removedIndex = settings.profiles.findIndex((p) => p.id === id);
     const profiles = settings.profiles.filter((p) => p.id !== id);
-    const main_profile_ids = mainProfileIds.filter((profileId) => profileId !== id);
     const active =
       settings.active_profile_id === id
-        ? main_profile_ids[0] ?? null
+        ? profiles[Math.min(Math.max(removedIndex, 0), profiles.length - 1)]?.id ?? null
         : settings.active_profile_id;
     onChange({
       ...settings,
       profiles,
       active_profile_id: active,
-      ui: { ...settings.ui, main_profile_ids },
     });
     setConfirmDelete(null);
-  };
-
-  const onToggleMainProfile = (id: string) => {
-    if (mainProfileIds.includes(id)) {
-      const main_profile_ids = mainProfileIds.filter((profileId) => profileId !== id);
-      onChange({
-        ...settings,
-        active_profile_id:
-          settings.active_profile_id === id
-            ? main_profile_ids[0] ?? null
-            : settings.active_profile_id,
-        ui: { ...settings.ui, main_profile_ids },
-      });
-      return;
-    }
-
-    if (mainProfileIds.length >= 2) return;
-
-    const main_profile_ids = [...mainProfileIds, id];
-    const active_profile_id =
-      settings.active_profile_id && mainProfileIds.includes(settings.active_profile_id)
-        ? settings.active_profile_id
-        : id;
-
-    onChange({
-      ...settings,
-      active_profile_id,
-      ui: { ...settings.ui, main_profile_ids },
-    });
   };
 
   return (
@@ -103,90 +112,145 @@ export function ManageProfilesModal({
       title={
         <span className="modal-title-with-hint">
           프로필 관리
-          <span className="modal-title-hint">메인 표시 프로필은 최대 2개까지 선택</span>
+          <span className="modal-title-hint">드래그하여 메인 노출 순서 변경</span>
         </span>
       }
       width={780}
       headerActions={
         <button className="btn-primary btn-primary-sm" onClick={onCreateClick}>
-          + New Profile
+          + 새 프로필
         </button>
       }
     >
       {settings.profiles.length === 0 && (
         <div className="empty-state">
           <div className="empty-title">등록된 프로필이 없습니다</div>
-          <div className="empty-hint">"+ New Profile"로 첫 프로필을 만드세요</div>
+          <div className="empty-hint">"+ 새 프로필"로 첫 프로필을 만드세요</div>
         </div>
       )}
 
       <div className="profile-groups">
           <section className="profile-group">
             <div className="profile-cards">
-              {settings.profiles.map((p) => {
-                const isMain = mainProfileIds.includes(p.id);
+              {displayProfiles.map((p, index) => {
                 const isCurrent = settings.active_profile_id === p.id;
-                const activeSlot = isMain ? mainProfileIds.indexOf(p.id) + 1 : null;
                 return (
                   <div
                     key={p.id}
-                    className={`profile-card ${isMain ? "is-active" : ""} ${
-                      isCurrent ? "is-current" : ""
+                    className={`profile-card ${isCurrent ? "is-current" : ""} ${
+                      draggedId === p.id ? "is-dragging" : ""
                     }`}
-                    role="button"
-                    tabIndex={0}
-                    title={
-                      isMain
-                        ? `메인 표시 프로필 ${activeSlot}에서 제외`
-                        : mainProfileIds.length >= 2
-                        ? "메인 표시 프로필은 최대 2개까지 선택할 수 있습니다"
-                        : "클릭하여 메인 표시 프로필로 선택"
-                    }
-                    onClick={() => onToggleMainProfile(p.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onToggleMainProfile(p.id);
+                    data-profile-id={p.id}
+                    onPointerDown={(e) => {
+                      if (
+                        e.target instanceof Element &&
+                        e.target.closest("button")
+                      ) {
+                        return;
+                      }
+                      if (e.button !== 0) return;
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      pointerDragRef.current = {
+                        id: p.id,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        active: false,
+                      };
+                      updatePreviewOrder(settings.profiles.map((profile) => profile.id));
+                    }}
+                    onPointerMove={(e) => {
+                      const drag = pointerDragRef.current;
+                      if (!drag) return;
+                      if (
+                        !drag.active &&
+                        Math.hypot(
+                          e.clientX - drag.startX,
+                          e.clientY - drag.startY
+                        ) < 5
+                      ) {
+                        return;
+                      }
+                      if (!drag.active) {
+                        drag.active = true;
+                        setDraggedId(drag.id);
+                      }
+                      e.preventDefault();
+                      const target = document
+                        .elementFromPoint(e.clientX, e.clientY)
+                        ?.closest<HTMLElement>("[data-profile-id]");
+                      const targetId = target?.dataset.profileId;
+                      if (!target || !targetId || targetId === drag.id) {
+                        return;
+                      }
+                      const current = previewOrderRef.current;
+                      if (current) {
+                        const sourceIndex = current.indexOf(drag.id);
+                        const targetIndex = current.indexOf(targetId);
+                        // 목표 카드 영역에 들어오는 즉시 이동 방향대로 앞/뒤에 배치.
+                        const after = sourceIndex < targetIndex;
+                        const next = reorderIds(current, drag.id, targetId, after);
+                        if (next.some((id, index) => id !== current[index])) {
+                          updatePreviewOrder(next);
+                        }
                       }
                     }}
+                    onPointerUp={(e) => {
+                      const drag = pointerDragRef.current;
+                      const order = previewOrderRef.current;
+                      if (drag?.active && order) {
+                        const profiles = order
+                          .map((id) =>
+                            settings.profiles.find((profile) => profile.id === id)
+                          )
+                          .filter((profile): profile is Profile => !!profile);
+                        if (
+                          profiles.some(
+                            (profile, index) =>
+                              profile.id !== settings.profiles[index]?.id
+                          )
+                        ) {
+                          onChange({ ...settings, profiles });
+                        }
+                      }
+                      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                        e.currentTarget.releasePointerCapture(e.pointerId);
+                      }
+                      clearDragState();
+                    }}
+                    onPointerCancel={clearDragState}
                   >
+                    <span className="profile-order-number">{index + 1}</span>
                     <div className="profile-card-main">
                       <div className="profile-card-title">
                         {p.name}
-                        {activeSlot && (
-                          <span className="active-badge">ACTIVE {activeSlot}</span>
-                        )}
-                        {isCurrent && <span className="current-badge">SELECTED</span>}
+                        {isCurrent && <span className="current-badge">현재 사용 중</span>}
                       </div>
                       <div className="profile-card-meta">
                         <span className="meta-label">서버</span>
                         <span>{p.server.address}:{p.server.port}</span>
                       </div>
                     </div>
-                    <div
-                      className="profile-card-actions"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="profile-card-actions">
                       <button
                         className="btn-action"
                         onClick={() => onEdit(p.id)}
                         title="이 프로필 편집 (서버/경로/계정 수정)"
                       >
-                        Edit
+                        편집
                       </button>
                       <button
                         className="btn-action"
                         onClick={() => onCopy(p)}
                         title="같은 설정으로 복제본 만들기"
                       >
-                        Copy
+                        복사
                       </button>
                       <button
                         className="btn-action btn-action-danger"
                         onClick={() => setConfirmDelete(p.id)}
                         title="이 프로필 삭제 (되돌릴 수 없음)"
                       >
-                        Delete
+                        삭제
                       </button>
                     </div>
                   </div>

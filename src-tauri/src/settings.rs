@@ -47,8 +47,8 @@ pub struct UiSettings {
     /// 설정 가이드를 한 번이라도 열었는지(영구). false면 사이드바 버튼 강조.
     #[serde(default)]
     pub guide_opened: bool,
-    /// 메인 화면에 노출할 프로필 id. 순서대로 최대 2개.
-    #[serde(default)]
+    /// 레거시 메인 노출 순서. 마이그레이션 시 profiles 순서로 흡수하고 더는 저장하지 않음.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main_profile_ids: Option<Vec<String>>,
 }
 
@@ -104,30 +104,26 @@ fn migrate(s: &mut Settings) {
         }
     }
 
-    let valid_ids: std::collections::HashSet<String> =
-        s.profiles.iter().map(|p| p.id.clone()).collect();
-    match &mut s.ui.main_profile_ids {
-        Some(ids) => {
-            ids.retain(|id| valid_ids.contains(id));
-            ids.truncate(2);
-        }
-        None => {
-            s.ui.main_profile_ids = Some(s.profiles.iter().take(2).map(|p| p.id.clone()).collect());
-        }
+    // 과거 "메인 표시"로 선택한 프로필을 맨 앞으로 이동해 기존 사용자의 의도를 보존.
+    // 이후부터는 profiles 배열 순서 자체가 메인 노출 우선순위다.
+    if let Some(legacy_main_ids) = s.ui.main_profile_ids.take() {
+        let order: std::collections::HashMap<String, usize> = legacy_main_ids
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| (id, index))
+            .collect();
+        s.profiles
+            .sort_by_key(|profile| order.get(&profile.id).copied().unwrap_or(usize::MAX));
     }
 
-    match (&s.active_profile_id, &s.ui.main_profile_ids) {
-        (Some(active), Some(ids)) if !ids.contains(active) => {
-            s.active_profile_id = ids.first().cloned();
+    let valid_ids: std::collections::HashSet<String> =
+        s.profiles.iter().map(|p| p.id.clone()).collect();
+    match &s.active_profile_id {
+        Some(active) if !valid_ids.contains(active) => {
+            s.active_profile_id = s.profiles.first().map(|profile| profile.id.clone());
         }
-        (Some(active), _) if !valid_ids.contains(active) => {
-            s.active_profile_id =
-                s.ui.main_profile_ids
-                    .as_ref()
-                    .and_then(|ids| ids.first().cloned());
-        }
-        (None, Some(ids)) if !ids.is_empty() => {
-            s.active_profile_id = ids.first().cloned();
+        None => {
+            s.active_profile_id = s.profiles.first().map(|profile| profile.id.clone());
         }
         _ => {}
     }
@@ -137,4 +133,63 @@ pub fn save(s: &Settings) -> Result<(), String> {
     let p = settings_path()?;
     let json = serde_json::to_string_pretty(s).map_err(|e| format!("직렬화 실패: {e}"))?;
     fs::write(&p, json).map_err(|e| format!("settings 쓰기 실패: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profile::{EncryptionType, Profile, ServerConfig};
+
+    fn profile(id: &str) -> Profile {
+        Profile {
+            id: id.to_string(),
+            name: id.to_string(),
+            uo_path: String::new(),
+            cuo_path: None,
+            server: ServerConfig {
+                address: "localhost".to_string(),
+                port: 2593,
+                encryption: EncryptionType::Auto,
+                accounts: Vec::new(),
+                active_account_id: None,
+                username: String::new(),
+                password_encrypted: String::new(),
+            },
+            client_version: None,
+        }
+    }
+
+    #[test]
+    fn legacy_main_profiles_become_profile_order() {
+        let mut settings = Settings {
+            active_profile_id: Some("c".to_string()),
+            profiles: vec![profile("a"), profile("b"), profile("c")],
+            plugins: Vec::new(),
+            ui: UiSettings {
+                main_profile_ids: Some(vec!["b".to_string(), "a".to_string()]),
+                ..UiSettings::default()
+            },
+        };
+
+        migrate(&mut settings);
+
+        let ids: Vec<&str> = settings.profiles.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["b", "a", "c"]);
+        assert_eq!(settings.active_profile_id.as_deref(), Some("c"));
+        assert!(settings.ui.main_profile_ids.is_none());
+    }
+
+    #[test]
+    fn missing_active_profile_falls_back_to_first_profile() {
+        let mut settings = Settings {
+            active_profile_id: Some("missing".to_string()),
+            profiles: vec![profile("a"), profile("b")],
+            plugins: Vec::new(),
+            ui: UiSettings::default(),
+        };
+
+        migrate(&mut settings);
+
+        assert_eq!(settings.active_profile_id.as_deref(), Some("a"));
+    }
 }

@@ -98,7 +98,7 @@ export function PluginPanel({ plugins, onChange }: Props) {
 
   const onAdd = async () => {
     try {
-      const picked = await api.pluginSelectFile();
+      const picked = await api.addPlugin();
       if (!picked) return;
       if (plugins.some((p) => p.path === picked)) {
         alert("이미 등록된 플러그인입니다.");
@@ -109,21 +109,6 @@ export function PluginPanel({ plugins, onChange }: Props) {
       onChange(setSelected(appended, appended.length - 1));
     } catch (e) {
       alert(`추가 실패: ${e}`);
-    }
-  };
-
-  const onImportZip = async () => {
-    try {
-      const dllPath = await api.importPluginFromZip();
-      if (!dllPath) return;
-      if (plugins.some((p) => p.path === dllPath)) {
-        alert("이미 등록된 플러그인입니다.");
-        return;
-      }
-      const appended = [...plugins, { path: dllPath, enabled: false }];
-      onChange(setSelected(appended, appended.length - 1));
-    } catch (e) {
-      alert(`ZIP import 실패: ${e}`);
     }
   };
 
@@ -160,11 +145,12 @@ export function PluginPanel({ plugins, onChange }: Props) {
           )}
         </span>
         <div className="panel-actions">
-          <button className="btn-small" onClick={onAdd}>
-            + Add
-          </button>
-          <button className="btn-small" onClick={onImportZip}>
-            Import ZIP
+          <button
+            className="btn-small"
+            onClick={onAdd}
+            title=".exe, .dll, .zip 파일을 모두 추가할 수 있습니다."
+          >
+            + 추가
           </button>
         </div>
       </header>
@@ -198,16 +184,9 @@ export function PluginPanel({ plugins, onChange }: Props) {
               <button
                 className="btn-small"
                 onClick={onAdd}
-                title=".dll/.exe 직접 선택"
+                title=".exe, .dll, .zip 파일을 모두 추가할 수 있습니다."
               >
-                + Add
-              </button>
-              <button
-                className="btn-small"
-                onClick={onImportZip}
-                title="배포 ZIP을 풀어서 자동 등록"
-              >
-                Import ZIP
+                + 추가
               </button>
             </div>
           </div>
