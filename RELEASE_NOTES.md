@@ -1,5 +1,23 @@
 # GGO Launcher Release Notes
 
+## v0.2.1
+
+### 주요 변경 사항
+- 배경 키 아트와 유리 패널을 중심으로 런처 화면 디자인을 전면 개편했습니다.
+- Pretendard Variable 웹폰트를 런처에 내장해 시스템 폰트 설치 여부와 관계없이 동일한 한글 표시를 제공합니다.
+- 기본 배경 이미지를 런처에 내장하고, `sidebar.json`의 `background_url`을 통해 런처 재배포 없이 원격 배경을 교체할 수 있도록 했습니다.
+
+### 안정성 및 배포
+- 원격 배경은 HTTPS URL만 허용하고 이미지 프리로드가 성공한 경우에만 적용하며, 실패하면 내장 기본 배경을 유지합니다.
+- Pretendard의 SIL Open Font License 1.1 고지를 런처 번들에 포함했습니다.
+- 프로필·플러그인·공지·서버 상태 UI의 인라인 스타일을 공통 디자인 시스템으로 정리했습니다.
+
+### 검증
+- `npm.cmd run build` 통과
+- `cargo test` 통과
+- `npm.cmd run tauri build` 및 NSIS 설치 파일 생성 통과
+- 배경 이미지와 폰트의 production `dist` 포함 및 원본 SHA-256 일치 확인
+
 ## v0.2.0
 
 ### 주요 변경 사항

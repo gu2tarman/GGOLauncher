@@ -156,20 +156,10 @@ export function PluginPanel({ plugins, onChange }: Props) {
       </header>
       <div className="plugin-grid">
         {plugins.length === 0 ? (
-          <div
-            className="plugin-empty"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 8,
-              padding: "16px 10px",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: 22, lineHeight: 1 }}>🧩</div>
-            <div style={{ fontWeight: 600 }}>플러그인이 필요합니다</div>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
+          <div className="plugin-empty profile-empty">
+            <div className="profile-empty-mark">✦</div>
+            <div className="profile-empty-title">플러그인이 필요합니다</div>
+            <div className="profile-empty-hint">
               RazorEnhanced나 ClassicAssist 같은 보조 도구를 등록하세요.
             </div>
             <div

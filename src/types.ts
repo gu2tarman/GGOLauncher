@@ -100,6 +100,8 @@ export interface SidebarGroup {
 
 export interface Sidebar {
   groups: SidebarGroup[];
+  /** 배경 아트 원격 교체용 HTTPS URL. 없으면 번들 기본 배경(bg-default.jpg) 사용 */
+  background_url?: string | null;
 }
 
 // ── Server Status (마고 서버 가용성) ────────────────────

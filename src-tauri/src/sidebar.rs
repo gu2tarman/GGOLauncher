@@ -25,6 +25,9 @@ pub struct SidebarGroup {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sidebar {
     pub groups: Vec<SidebarGroup>,
+    /// 배경 아트 원격 교체용 HTTPS URL. null이면 런처 번들 기본 배경 사용.
+    #[serde(default)]
+    pub background_url: Option<String>,
 }
 
 pub async fn fetch() -> Result<Sidebar, String> {

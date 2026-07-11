@@ -124,6 +124,19 @@ function createInstallProfile(cuoPath: string, count: number): Profile {
 
 const NOTICE_REFRESH_MS = 5 * 60 * 1000;
 const PROFILE_PAGE_SIZE = 4;
+/** 번들 기본 배경. sidebar.json의 background_url로 원격 교체 가능 (보험설계). */
+const DEFAULT_BG = "/bg-default.jpg";
+
+/** sidebar.json에는 외부 HTTPS 이미지만 허용한다. 잘못된 값은 번들 배경으로 폴백. */
+function normalizeRemoteBackgroundUrl(value?: string | null): string | null {
+  if (!value?.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 type UpdateState =
   | { kind: "checking" }
@@ -160,6 +173,8 @@ function App() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   // 사이드바 — 원격 fetch, 실패 시 FALLBACK 사용
   const [sidebar, setSidebar] = useState<Sidebar>(FALLBACK_SIDEBAR);
+  // 배경 아트 — 원격 URL은 프리로드 성공 시에만 교체 (실패해도 기본 배경 유지)
+  const [bgUrl, setBgUrl] = useState<string>(DEFAULT_BG);
   const [noticeBoard, setNoticeBoard] = useState<NoticeBoardData | null>(null);
   const [noticeError, setNoticeError] = useState<string | null>(null);
   const [noticeRetryNonce, setNoticeRetryNonce] = useState(0);
@@ -199,7 +214,20 @@ function App() {
     api
       .fetchSidebar()
       .then((s) => {
-        if (!cancelled && s.groups?.length > 0) setSidebar(s);
+        if (cancelled) return;
+        if (s.groups?.length > 0) setSidebar(s);
+        const remoteBackground = normalizeRemoteBackgroundUrl(s.background_url);
+        if (remoteBackground) {
+          const img = new Image();
+          img.onload = () => {
+            if (!cancelled) setBgUrl(remoteBackground);
+          };
+          img.onerror = () =>
+            console.warn("[sidebar background] 이미지 로드 실패", remoteBackground);
+          img.src = remoteBackground;
+        } else if (s.background_url) {
+          console.warn("[sidebar background] HTTPS URL만 허용됩니다");
+        }
       })
       .catch((e) => console.warn("[sidebar fetch]", e));
     return () => {
@@ -649,6 +677,13 @@ function App() {
 
   return (
     <div className="app">
+      {/* 배경 키 아트 (오버레이는 CSS ::after) */}
+      <div
+        className="app-bg"
+        style={{ backgroundImage: `url("${bgUrl}")` }}
+        aria-hidden
+      />
+
       {/* ── Left ─────────────────────────── */}
       <aside className="left-column">
         <div className="logo-wrap">
@@ -696,7 +731,7 @@ function App() {
               <>
                 <span className="self-update-msg self-update-msg-stacked">
                   <span>
-                    🆙 새 런처 버전 <b>v{selfUpdate.manifest.version}</b> 사용 가능
+                    새 런처 버전 <b>v{selfUpdate.manifest.version}</b> 사용 가능
                   </span>
                   {selfUpdate.manifest.notes && (
                     <span className="self-update-notes">
@@ -880,20 +915,10 @@ function App() {
                 </div>
               </>
             ) : hasAnyProfile ? (
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "14px 10px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 24, lineHeight: 1 }}>◇</div>
-                <div style={{ fontWeight: 600 }}>메인에 표시할 프로필을 선택하세요</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
+              <div className="profile-empty">
+                <div className="profile-empty-mark">✦</div>
+                <div className="profile-empty-title">메인에 표시할 프로필을 선택하세요</div>
+                <div className="profile-empty-hint">
                   프로필 관리에서 순서를 정하면 앞의 프로필부터 이곳에 표시됩니다.
                 </div>
                 <button
@@ -906,20 +931,10 @@ function App() {
                 </button>
               </div>
             ) : (
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "14px 10px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 24, lineHeight: 1 }}>🎮</div>
-                <div style={{ fontWeight: 600 }}>첫 프로필을 만들어볼까요?</div>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
+              <div className="profile-empty">
+                <div className="profile-empty-mark">✦</div>
+                <div className="profile-empty-title">첫 프로필을 만들어볼까요?</div>
+                <div className="profile-empty-hint">
                   접속 서버 정보와 계정을 등록하면 바로 PLAY/MULTI LOGIN 가능합니다.
                 </div>
                 <button
@@ -1092,25 +1107,9 @@ function App() {
               )}
             </div>
 
-            <div
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                padding: "10px 12px",
-                borderRadius: 6,
-              }}
-            >
-              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
-                최종 설치 경로
-              </div>
-              <div
-                style={{
-                  fontFamily: "ui-monospace, Consolas, monospace",
-                  fontSize: 12,
-                  wordBreak: "break-all",
-                }}
-              >
-                {installFinalPath || "—"}
-              </div>
+            <div className="modal-path-box">
+              <div className="modal-path-label">최종 설치 경로</div>
+              <div className="modal-path-value">{installFinalPath || "—"}</div>
             </div>
 
             <div
@@ -1159,17 +1158,8 @@ function App() {
               교체됩니다. (기존 파일은 같은 위치에 <code>.bak</code>로
               백업됩니다.)
             </p>
-            <div
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                padding: "10px 12px",
-                borderRadius: 6,
-                fontFamily: "ui-monospace, Consolas, monospace",
-                fontSize: 12,
-                wordBreak: "break-all",
-              }}
-            >
-              {originalCuoConfirm.cuoPath}
+            <div className="modal-path-box">
+              <div className="modal-path-value">{originalCuoConfirm.cuoPath}</div>
             </div>
             <p style={{ margin: 0, fontSize: 13, opacity: 0.8 }}>
               계속 진행할까요?

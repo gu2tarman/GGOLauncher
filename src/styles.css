@@ -1,17 +1,46 @@
+/* ══════════════════════════════════════════════════════════
+   GGO Launcher — Glass over Key-Art 디자인 시스템
+   구조: 배경 아트(.app-bg) → 오버레이 → 유리 패널(--glass)
+        → 내부 아이템은 진한 칩(--chip)으로 가독성 확보
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 폰트 (로컬 번들 — SIL OFL, 오프라인 동작) ──────────── */
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── Design tokens ───────────────────────────────────────── */
 :root {
-  --bg-deep:       #0c1530;
-  --bg-panel:      #14203f;
-  --bg-panel-soft: #1a2a52;
-  --border-soft:   #2a3a66;
-  --text-primary:  #eaf0ff;
-  --text-dim:      #98a4c4;
-  --text-mute:     #6b7aa0;
+  --bg-deep:       #060a18;
+
+  /* 유리 패널 (구역 컨테이너: 사이드바/프로필/플러그인/공지) */
+  --glass:         rgba(10, 15, 32, 0.55);
+  --glass-strong:  rgba(8, 12, 26, 0.8);    /* 모달 등 텍스트 밀도 높은 곳 */
+  --glass-border:  rgba(255, 255, 255, 0.1);
+  --blur:          14px;
+
+  /* 칩 (패널 내부 아이템: 공지 항목/플러그인/퀵카드/계정행)
+     유리보다 어둡고 불투명 — 본문 텍스트 가독성 담당.
+     흑색이 아닌 남색 톤 + 중간 불투명도로 대비를 부드럽게 */
+  --chip:          rgba(16, 23, 45, 0.55);
+  --chip-hover:    rgba(24, 34, 62, 0.65);
+  --chip-border:   rgba(255, 255, 255, 0.07);
+
+  --text-primary:  #f2f6ff;
+  --text-dim:      #b9c4e4;
+  --text-mute:     #8d9bc0;
   --accent-teal:   #2dd4bf;
   --accent-teal-2: #14b8a6;
   --accent-purple: #8b5cf6;
   --danger:        #ef4444;
   --warning:       #f59e0b;
+
+  /* 유리 위 텍스트 가독성용 공통 섀도 (은은하게) */
+  --tsh: 0 1px 2px rgba(2, 6, 18, 0.45);
 
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -40,6 +69,12 @@ button {
   outline: none;
 }
 
+button:focus-visible,
+.text-input:focus-visible {
+  outline: 2px solid var(--accent-teal);
+  outline-offset: 1px;
+}
+
 /* ── Layout ─────────────────────────────────────────────── */
 .app {
   position: relative;
@@ -47,23 +82,58 @@ button {
   grid-template-columns: 280px 1fr;
   grid-template-rows: 1fr;          /* row도 명시 → 자식 높이 제한 */
   height: 100vh;
-  gap: 24px;
-  padding: 24px 24px 28px;          /* 하단 여백 — footer 띄울 공간 */
+  gap: 22px;
+  padding: 22px 22px 30px;          /* 하단 여백 — footer 전용 밴드 */
   overflow: hidden;
+  /* 유리 위 텍스트 공통 섀도 (입력창 등은 개별 해제) */
+  text-shadow: var(--tsh);
 }
 
-/* Grid 자식이 부모 셀을 무시하고 자라는 것 방지 */
-.app > * { min-height: 0; min-width: 0; }
+/* Grid 자식이 부모 셀을 무시하고 자라는 것 방지 + 배경 위 레이어링 */
+.app > * { min-height: 0; min-width: 0; position: relative; z-index: 1; }
 
-/* ── Left column ────────────────────────────────────────── */
+/* ── 배경 키 아트 레이어 ─────────────────────────────────
+   backgroundImage는 App.tsx에서 지정 (기본: /bg-default.jpg,
+   sidebar.json의 background_url로 원격 교체 가능) */
+.app-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0 !important;
+  background-size: cover;
+  background-position: center 30%;
+  background-repeat: no-repeat;
+}
+
+/* 오버레이: 좌측(사이드바 뒤)과 하단(공지 텍스트 뒤)을 진하게 */
+.app-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg,
+      rgba(4, 8, 20, 0.9) 0%,
+      rgba(4, 8, 20, 0.6) 26%,
+      rgba(4, 8, 20, 0.22) 55%,
+      rgba(4, 8, 20, 0.36) 100%),
+    linear-gradient(180deg,
+      rgba(4, 8, 20, 0.22) 0%,
+      rgba(4, 8, 20, 0.06) 35%,
+      rgba(4, 8, 20, 0.74) 100%);
+}
+
+/* ── Left column (유리 패널로 영역 구분) ────────────────── */
 .left-column {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0;
-  padding-top: 8px;
-  padding-bottom: 0;
+  padding: 16px 14px 14px;
   overflow: hidden;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 /* 마지막 그룹(주로 ORIGINAL CLASSICUO)을 하단으로 — 공지 카드 끝과 정렬 */
@@ -72,7 +142,7 @@ button {
 }
 
 .left-column::-webkit-scrollbar { width: 6px; }
-.left-column::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 3px; }
+.left-column::-webkit-scrollbar-thumb { background: var(--chip-border); border-radius: 3px; }
 
 .logo-wrap {
   width: 100%;
@@ -80,44 +150,83 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .logo {
-  width: 180px;
+  width: 170px;
   height: auto;
-  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.6));
   user-select: none;
 }
 
-/* 앱 하단 footer — 메인 그리드 밖에 absolute로 배치 (컬럼 높이 침범 X).
-   하단 여백 영역에 우측 정렬, 컬럼 끝선보다 약간 아래. */
+/* 앱 하단 footer — 메인 그리드 밖 하단 여백 밴드에 우측 정렬.
+   컬럼(공지 카드) 영역을 침범하지 않음. */
 .app-footer {
   position: absolute;
   right: 24px;
-  bottom: 6px;
+  bottom: 7px;
   font-size: 12px;
   color: var(--text-mute);
   letter-spacing: 0.3px;
-  opacity: 0.7;
+  opacity: 0.85;
   user-select: none;
   pointer-events: none;             /* 클릭 통과 */
+  z-index: 2;
 }
 
+/* ── 서버 상태 배지 ─────────────────────────────────────── */
 .server-status-badge {
-  margin-bottom: 22px;
+  width: 100%;
+  margin-bottom: 18px;
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
 }
 
+.server-status-badge[data-state="online"]  { border-color: rgba(90, 209, 126, 0.45); }
+.server-status-badge[data-state="offline"] { border-color: rgba(226, 106, 106, 0.45); }
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-mute);
+  flex-shrink: 0;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+[data-state="online"] .status-dot  { background: #5ad17e; box-shadow: 0 0 6px rgba(90, 209, 126, 0.7); }
+[data-state="offline"] .status-dot { background: #e26a6a; }
+
+.status-label { font-weight: 600; }
+.status-state { font-weight: 700; color: var(--text-dim); }
+[data-state="online"] .status-state  { color: #5ad17e; }
+[data-state="offline"] .status-state { color: #e26a6a; }
+
+.status-ms {
+  margin-left: auto;
+  opacity: 0.8;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+}
+
+/* ── 사이드 버튼 그룹 ───────────────────────────────────── */
 .btn-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  padding: 0 16px;
+  padding: 0 4px;
 }
 
 .left-column > .btn-group:not(:last-of-type) {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .btn-group-label {
@@ -126,24 +235,25 @@ button {
   letter-spacing: 2px;
   color: var(--text-mute);
   padding: 12px 4px 6px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--glass-border);
 }
 
 .side-btn {
   position: relative;
-  background: var(--bg-panel);
+  background: var(--chip);
   color: var(--text-primary);
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   padding: 10px 12px;
   border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 600;
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
   text-align: center;
+  text-shadow: var(--tsh);
 }
 
 .side-btn:hover:not(:disabled) {
-  background: var(--bg-panel-soft);
+  background: var(--chip-hover);
   border-color: var(--accent-teal);
 }
 
@@ -162,8 +272,8 @@ button {
   right: 8px;
   transform: translateY(-50%);
   font-size: 9px;
-  background: var(--text-mute);
-  color: var(--bg-deep);
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-dim);
   padding: 1px 6px;
   border-radius: 8px;
   font-weight: 700;
@@ -184,7 +294,7 @@ button {
 @keyframes side-btn-pulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(45, 212, 191, 0);
-    border-color: var(--border-soft);
+    border-color: var(--chip-border);
   }
   50% {
     box-shadow: 0 0 10px 1px rgba(45, 212, 191, 0.45);
@@ -194,8 +304,11 @@ button {
 
 /* 모션 최소화 환경: 애니메이션 대신 정적 글로우 유지 */
 @media (prefers-reduced-motion: reduce) {
-  .side-btn-highlight {
+  .side-btn-highlight,
+  .btn-update-available {
     animation: none;
+  }
+  .side-btn-highlight {
     box-shadow: 0 0 8px 1px rgba(45, 212, 191, 0.4);
     border-color: var(--accent-teal);
   }
@@ -209,18 +322,19 @@ button {
   transform: translateY(-50%);
   font-size: 9px;
   background: var(--accent-teal);
-  color: var(--bg-deep);
+  color: #04231e;
   padding: 1px 6px;
   border-radius: 8px;
   font-weight: 700;
   letter-spacing: 0.5px;
+  text-shadow: none;
 }
 
 /* ── Right column ───────────────────────────────────────── */
 .right-column {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 13px;
   min-width: 0;
   min-height: 0;
 }
@@ -230,9 +344,9 @@ button {
   display: grid;
   grid-template-columns: 3fr 2fr;
   gap: 12px;
-  height: 64px;
-  min-height: 64px;
-  flex: 0 0 64px;
+  height: 72px;
+  min-height: 72px;
+  flex: 0 0 72px;
 }
 
 /* PLAY / MULTI를 우선하고 상태성 업데이트 버튼은 조금 좁게. */
@@ -245,30 +359,31 @@ button {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.6px;
-  opacity: 0.75;
+  opacity: 0.85;
   margin-top: 3px;
 }
 
-/* MULTI LOGIN — 보라 그라데이션 */
+/* MULTI LOGIN — 앤틱 골드 (배경 아트·로고와 동일 웜톤, PLAY와 동급 위계) */
 .btn-multi {
-  background: linear-gradient(135deg, var(--accent-purple) 0%, #6d3fdc 100%);
-  color: #fff;
+  background: linear-gradient(150deg, rgba(232, 207, 143, 0.92) 0%, rgba(201, 162, 39, 0.92) 55%, rgba(154, 118, 28, 0.92) 100%);
+  color: #241c07;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 1.5px;
-  border: none;
+  border: 1px solid rgba(240, 220, 165, 0.45);
   border-radius: var(--radius-lg);
   font-family: inherit;
-  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(201, 162, 39, 0.26), inset 0 1px 0 rgba(255, 244, 214, 0.55);
   cursor: pointer;
   transition: filter 0.15s, box-shadow 0.2s, transform 0.08s;
+  text-shadow: none;
 }
 
 .btn-multi:hover:not(:disabled) {
-  filter: brightness(1.12);
-  box-shadow: 0 8px 22px rgba(139, 92, 246, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  filter: brightness(1.08);
+  box-shadow: 0 10px 28px rgba(201, 162, 39, 0.36), inset 0 1px 0 rgba(255, 244, 214, 0.6);
   transform: translateY(-1px);
 }
 
@@ -277,8 +392,9 @@ button {
 }
 
 .btn-multi-disabled {
-  background: var(--bg-panel) !important;
+  background: var(--chip) !important;
   color: var(--text-mute) !important;
+  border-color: var(--chip-border) !important;
   box-shadow: none !important;
   cursor: not-allowed;
 }
@@ -288,7 +404,7 @@ button {
   font-size: 22px;
 }
 
-/* 런처 자기 업데이트 배너 */
+/* 런처 자기 업데이트 배너 — 경보 언어는 solid 유지 (배경 위 확실히 부각) */
 .self-update-banner {
   display: flex;
   align-items: center;
@@ -301,21 +417,28 @@ button {
   background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
   color: #1a0e00;
   box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+  text-shadow: none;
 }
 
 .self-update-banner.self-update-downloading,
 .self-update-banner.self-update-applying {
-  background: var(--bg-panel);
+  background: var(--glass-strong);
   color: var(--text-primary);
   border: 1px solid var(--accent-teal);
   box-shadow: none;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  text-shadow: var(--tsh);
 }
 
 .self-update-banner.self-update-error {
-  background: var(--bg-panel);
+  background: var(--glass-strong);
   color: var(--danger);
   border: 1px solid var(--danger);
   box-shadow: none;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+  text-shadow: var(--tsh);
 }
 
 .self-update-msg {
@@ -352,7 +475,68 @@ button {
   font-size: 13px;
   font-weight: 600;
   box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+  text-shadow: none;
 }
+
+/* ── 온보딩 배너 (첫 사용 가이드) ─────────────────── */
+.onboarding-banner {
+  position: relative;
+  background: var(--glass-strong);
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 12px;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+
+.onboarding-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.onboarding-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--accent-teal);
+  letter-spacing: 0.5px;
+}
+
+.onboarding-close {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.onboarding-close:hover { color: var(--text-primary); }
+
+.onboarding-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.onboarding-step.is-done { opacity: 0.55; }
+
+.onboarding-check {
+  width: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-mute);
+}
+
+.onboarding-step.is-done .onboarding-check { color: #5ad17e; }
+
+.onboarding-label { font-weight: 600; }
+.onboarding-hint { opacity: 0.75; font-size: 11px; color: var(--text-dim); }
 
 /* ── EditProfileModal 계정 리스트 ─────────────────── */
 .account-header {
@@ -366,8 +550,8 @@ button {
   text-align: center;
   font-size: 13px;
   color: var(--text-mute);
-  background: var(--bg-panel);
-  border: 1px dashed var(--border-soft);
+  background: var(--chip);
+  border: 1px dashed var(--chip-border);
   border-radius: var(--radius-md);
   line-height: 1.6;
 }
@@ -378,16 +562,16 @@ button {
   gap: 10px;
   align-items: center;
   padding: 8px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   border-radius: var(--radius-md);
   margin-bottom: 8px;
-  background: var(--bg-panel);
+  background: var(--chip);
   transition: border-color 0.15s, background 0.15s;
 }
 
 .account-row.is-active {
   border-color: var(--accent-purple);
-  background: rgba(139, 92, 246, 0.06);
+  background: rgba(139, 92, 246, 0.08);
 }
 
 .account-radio {
@@ -425,20 +609,25 @@ button {
   text-align: center;
 }
 
+/* ── PLAY / 업데이트 버튼 ─────────────────────────── */
+/* PLAY — MULTI와 동일 문법: 밝은톤→본색→딥톤 3단 그라데이션 + 상단 하이라이트 */
 .btn-play {
-  background: linear-gradient(135deg, var(--accent-teal) 0%, var(--accent-teal-2) 100%);
+  background: linear-gradient(150deg, rgba(158, 240, 227, 0.92) 0%, rgba(45, 212, 191, 0.92) 55%, rgba(12, 128, 115, 0.92) 100%);
   color: #04231e;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 2px;
+  border: 1px solid rgba(182, 246, 236, 0.45);
   border-radius: var(--radius-lg);
-  box-shadow: 0 6px 18px rgba(45, 212, 191, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transition: transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 8px 24px rgba(45, 212, 191, 0.28), inset 0 1px 0 rgba(230, 255, 250, 0.55);
+  transition: filter 0.15s, box-shadow 0.2s, transform 0.08s;
+  text-shadow: none;
 }
 
 .btn-play:hover {
+  filter: brightness(1.08);
   transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(45, 212, 191, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow: 0 10px 28px rgba(45, 212, 191, 0.38), inset 0 1px 0 rgba(230, 255, 250, 0.6);
 }
 
 .btn-play:active {
@@ -446,20 +635,23 @@ button {
 }
 
 .btn-update {
-  background: var(--bg-panel);
+  background: var(--chip);
   color: var(--text-primary);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   border-radius: var(--radius-lg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   transition: filter 0.15s, box-shadow 0.2s, transform 0.08s;
+  text-shadow: var(--tsh);
 }
 
 /* 호버: 배경/글자색 안 건드리고 밝기만 살짝 + 살짝 떠오르는 그림자.
    어떤 상태(주황/청록 등)에서도 가독성 안 깨짐. */
 .btn-update:hover:not(.is-disabled) {
-  filter: brightness(1.12);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  filter: brightness(1.15);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   transform: translateY(-1px);
 }
 
@@ -475,16 +667,17 @@ button {
 /* 업데이트 체크 중 (시작 직후) */
 .btn-update-checking {
   color: var(--text-mute);
-  opacity: 0.7;
+  opacity: 0.8;
   cursor: progress;
 }
 
-/* 업데이트 사용 가능 — 강조 펄스 */
+/* 업데이트 사용 가능 — 강조 펄스 (경보 언어: solid amber) */
 .btn-update-available {
   background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%);
   color: #1a0e00;
   border-color: var(--warning);
   animation: pulse-glow 1.8s ease-in-out infinite;
+  text-shadow: none;
 }
 
 @keyframes pulse-glow {
@@ -495,7 +688,6 @@ button {
 /* 최신 버전 (체크 완료, 업데이트 없음) */
 .btn-update-uptodate {
   color: var(--text-dim);
-  opacity: 0.85;
 }
 
 /* 다운로드 중 */
@@ -521,6 +713,7 @@ button {
   color: #04231e;
   border-color: var(--accent-teal);
   box-shadow: 0 6px 18px rgba(45, 212, 191, 0.3);
+  text-shadow: none;
 }
 
 /* 체크 실패 */
@@ -529,15 +722,17 @@ button {
   border-color: var(--danger);
 }
 
-/* Profile box */
+/* ── Profile box (유리 패널) ───────────────────────── */
 .profile-box {
   position: relative;
   flex-shrink: 0;
   min-height: 140px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: 14px 16px;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 .profile-header {
@@ -545,7 +740,7 @@ button {
   justify-content: space-between;
   align-items: center;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--glass-border);
   margin-bottom: 12px;
 }
 
@@ -560,7 +755,8 @@ button {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-dim);
-  background: var(--bg-panel-soft);
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
   padding: 3px 9px;
   border-radius: 6px;
 }
@@ -607,18 +803,19 @@ button {
   min-width: 0;
   min-height: 64px;
   padding: 9px 10px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--chip);
   color: var(--text-primary);
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, transform 0.08s;
+  text-shadow: var(--tsh);
 }
 
 .profile-quick-card:hover {
   border-color: rgba(45, 212, 191, 0.55);
-  background: rgba(45, 212, 191, 0.05);
+  background: var(--chip-hover);
 }
 
 .profile-quick-card:active {
@@ -627,7 +824,7 @@ button {
 
 .profile-quick-card.is-active {
   border-color: var(--accent-teal);
-  background: rgba(45, 212, 191, 0.08);
+  background: rgba(45, 212, 191, 0.12);
   box-shadow: inset 3px 0 0 var(--accent-teal);
 }
 
@@ -670,21 +867,26 @@ button {
   white-space: nowrap;
 }
 
+/* 프로필 관리 — 보조 액션은 중립 유리 (purple은 MULTI 전용) */
 .btn-change {
-  background: var(--accent-purple);
-  color: #fff;
+  background: var(--chip);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   height: 32px;
   min-height: 32px;
   padding: 0 14px;
   border-radius: var(--radius-md);
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   align-self: auto;
   white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+  text-shadow: var(--tsh);
 }
 
 .btn-change:hover {
-  filter: brightness(1.1);
+  background: var(--chip-hover);
+  border-color: var(--accent-teal);
 }
 
 .profile-side-controls {
@@ -704,9 +906,9 @@ button {
   align-self: auto;
   height: 32px;
   overflow: hidden;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   border-radius: var(--radius-md);
-  background: var(--bg-panel-soft);
+  background: var(--chip);
 }
 
 .btn-profile-page {
@@ -722,12 +924,45 @@ button {
   color: var(--accent-teal);
 }
 
-/* Plugin panel (inline toggle) */
+/* 프로필 빈 상태 (첫 프로필 / 표시할 프로필 없음) */
+.profile-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 10px;
+  text-align: center;
+}
+
+.profile-empty-mark {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--chip);
+  color: var(--accent-teal);
+  font-size: 14px;
+}
+
+.profile-empty-title { font-weight: 700; }
+
+.profile-empty-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ── Plugin panel (유리 패널) ──────────────────────── */
 .plugin-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: 12px 16px;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 .panel-header {
@@ -736,7 +971,7 @@ button {
   letter-spacing: 1px;
   color: var(--accent-teal);
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--glass-border);
   margin-bottom: 10px;
 }
 
@@ -760,19 +995,20 @@ button {
 }
 
 .btn-small {
-  background: var(--bg-panel-soft);
+  background: var(--chip);
   color: var(--text-primary);
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   padding: 4px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   font-family: inherit;
   transition: background 0.15s, border-color 0.15s;
+  text-shadow: var(--tsh);
 }
 
 .btn-small:hover {
-  background: var(--bg-panel);
+  background: var(--chip-hover);
   border-color: var(--accent-teal);
 }
 
@@ -786,14 +1022,15 @@ button {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border: 1px solid transparent;
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
   transition: background 0.1s, border-color 0.1s;
 }
 
-.plugin-item:hover { background: var(--bg-panel-soft); }
+.plugin-item:hover { background: var(--chip-hover); }
 
 .plugin-item.is-selected {
-  background: rgba(45, 212, 191, 0.1);
+  background: rgba(45, 212, 191, 0.12);
   border-color: var(--accent-teal);
 }
 
@@ -817,11 +1054,12 @@ button {
   padding: 1px 6px;
   border-radius: 4px;
   flex-shrink: 0;
+  text-shadow: none;
 }
 
-.plugin-type-dll { background: rgba(45, 212, 191, 0.18); color: var(--accent-teal); }
-.plugin-type-exe { background: rgba(139, 92, 246, 0.18); color: var(--accent-purple); }
-.plugin-type-\? { background: var(--border-soft); color: var(--text-dim); }
+.plugin-type-dll { background: rgba(45, 212, 191, 0.18); color: #7ee8da; }
+.plugin-type-exe { background: rgba(139, 92, 246, 0.2); color: #cdb6ff; }
+.plugin-type-\? { background: rgba(255, 255, 255, 0.12); color: var(--text-dim); }
 
 .plugin-name {
   flex: 1;
@@ -845,14 +1083,14 @@ button {
 
 .btn-plugin-remove:hover {
   color: var(--danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .plugin-count {
   font-size: 11px;
   font-weight: 700;
   color: var(--accent-teal);
-  background: rgba(45, 212, 191, 0.12);
+  background: rgba(45, 212, 191, 0.14);
   padding: 2px 8px;
   border-radius: 8px;
   margin-left: 8px;
@@ -861,10 +1099,12 @@ button {
 
 /* PLAY 버튼 비활성 */
 .btn-play-disabled {
-  background: var(--bg-panel) !important;
+  background: var(--chip) !important;
   color: var(--text-mute) !important;
+  border: 1px solid var(--chip-border);
   box-shadow: none !important;
   cursor: not-allowed;
+  text-shadow: var(--tsh);
 }
 
 .btn-play-disabled:hover {
@@ -883,14 +1123,16 @@ button {
   font-size: 13px;
   font-weight: 600;
   box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+  text-shadow: none;
 }
 
-/* ── Modal ──────────────────────────────────────── */
+/* ── Modal (진한 유리 — 텍스트 밀도 높으므로 불투명도 ↑) ── */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 24, 0.7);
-  backdrop-filter: blur(4px);
+  background: rgba(2, 5, 16, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -901,15 +1143,19 @@ button {
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
 
 .modal-dialog {
-  background: var(--bg-deep);
-  border: 1px solid var(--border-soft);
+  background: rgba(13, 19, 39, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: var(--radius-lg);
   max-height: 86vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);   /* 상단 유리 하이라이트 */
   overflow: hidden;
   animation: slideUp 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 
 @keyframes slideUp {
@@ -917,13 +1163,17 @@ button {
   to   { transform: translateY(0);    opacity: 1 }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop, .modal-dialog { animation: none; }
+}
+
 .modal-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 16px 22px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-panel);
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .modal-title {
@@ -961,7 +1211,7 @@ button {
 }
 
 .modal-close:hover {
-  background: var(--bg-panel-soft);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
 
@@ -970,6 +1220,9 @@ button {
   overflow-y: auto;
   flex: 1;
 }
+
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-thumb { background: var(--chip-border); border-radius: 3px; }
 
 /* ── Manage Profiles ─────────────────────────────── */
 /* 헤더 우측 액션 그룹 */
@@ -1001,7 +1254,7 @@ button {
   letter-spacing: 1.5px;
   color: var(--accent-teal);
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--glass-border);
   margin-bottom: 14px;
 }
 
@@ -1027,8 +1280,8 @@ button {
 
 .text-input {
   width: 100%;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
   color: var(--text-primary);
   padding: 9px 12px;
   border-radius: var(--radius-md);
@@ -1037,11 +1290,12 @@ button {
   font-weight: 500;
   outline: none;
   transition: border-color 0.15s, background 0.15s;
+  text-shadow: none;   /* 입력 텍스트에는 섀도 제거 */
 }
 
 .text-input:focus {
   border-color: var(--accent-teal);
-  background: var(--bg-panel-soft);
+  background: rgba(14, 22, 44, 0.8);
 }
 
 .text-input::placeholder { color: var(--text-mute); }
@@ -1083,6 +1337,7 @@ select.text-input {
   font-size: 12px;
   font-weight: 800;
   flex-shrink: 0;
+  text-shadow: none;
 }
 
 .path-mark.ok { background: var(--accent-teal); color: #04231e; }
@@ -1107,6 +1362,7 @@ select.text-input {
   font-family: inherit;
   cursor: pointer;
   transition: filter 0.15s, transform 0.05s;
+  text-shadow: none;
 }
 
 .btn-primary:hover { filter: brightness(1.1); }
@@ -1133,7 +1389,7 @@ select.text-input {
   letter-spacing: 1.5px;
   color: var(--text-mute);
   padding: 4px 6px 8px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--glass-border);
   margin-bottom: 8px;
   font-family: ui-monospace, Consolas, monospace;
 }
@@ -1150,8 +1406,8 @@ select.text-input {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
   border-radius: var(--radius-md);
   padding: 12px 16px;
   cursor: grab;
@@ -1161,7 +1417,7 @@ select.text-input {
 }
 
 .profile-card:hover {
-  background: var(--bg-panel-soft);
+  background: var(--chip-hover);
   border-color: rgba(45, 212, 191, 0.45);
 }
 
@@ -1171,7 +1427,7 @@ select.text-input {
 
 .profile-card.is-current {
   border-color: var(--accent-teal);
-  background: rgba(45, 212, 191, 0.06);
+  background: rgba(45, 212, 191, 0.08);
   box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.35);
 }
 
@@ -1231,13 +1487,14 @@ select.text-input {
   color: #04231e;
   padding: 2px 7px;
   border-radius: 6px;
+  text-shadow: none;
 }
 
 .current-badge {
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text-dim);
   padding: 2px 7px;
   border-radius: 6px;
@@ -1272,36 +1529,39 @@ select.text-input {
 }
 
 .btn-action {
-  background: var(--bg-panel-soft);
+  background: var(--chip);
   color: var(--text-primary);
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--chip-border);
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: filter 0.12s, border-color 0.12s;
+  transition: filter 0.12s, border-color 0.12s, background 0.12s;
+  text-shadow: var(--tsh);
 }
 
-.btn-action:hover { filter: brightness(1.15); border-color: var(--accent-teal); }
+.btn-action:hover { background: var(--chip-hover); border-color: var(--accent-teal); }
 
 .btn-action-primary {
   background: var(--accent-teal);
   color: #04231e;
   border-color: var(--accent-teal);
+  text-shadow: none;
 }
+
+.btn-action-primary:hover { background: var(--accent-teal); filter: brightness(1.1); }
 
 /* 평소엔 빨간 글자만, 테두리는 일반. 호버 시 빨간 테두리 + 옅은 빨간 배경 */
 .btn-action-danger {
   color: var(--danger);
-  /* border-color는 .btn-action 기본값(--border-soft) 그대로 */
+  /* border-color는 .btn-action 기본값(--chip-border) 그대로 */
 }
 
 .btn-action-danger:hover {
   border-color: var(--danger);
-  background: rgba(239, 68, 68, 0.1);
-  filter: brightness(1.1);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 /* ── Confirm dialog (nested in modal) ─────────────── */
@@ -1316,12 +1576,16 @@ select.text-input {
 }
 
 .confirm-dialog {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
+  background: rgba(13, 19, 39, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: var(--radius-md);
   padding: 20px 24px;
   width: 380px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .confirm-title {
@@ -1360,7 +1624,7 @@ select.text-input {
   padding: 10px 0;
 }
 
-/* Notice row (2 columns) */
+/* ── Notice row (2 columns, 유리 패널) ─────────────── */
 .notice-row {
   flex: 1 1 auto;
   display: grid;
@@ -1369,17 +1633,17 @@ select.text-input {
   min-height: 0;
 }
 
-/* (legacy) app-version-badge — 현재는 .app-footer에 통합됨 */
-
 .notice-card {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-soft);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
 }
 
 .notice-placeholder {
@@ -1395,7 +1659,7 @@ select.text-input {
   font-size: 13px;
   text-align: center;
   padding: 16px 0;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .notice-list {
@@ -1409,25 +1673,31 @@ select.text-input {
 
 .notice-list::-webkit-scrollbar { width: 6px; }
 .notice-list::-webkit-scrollbar-track { background: transparent; }
-.notice-list::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 3px; }
-.notice-list::-webkit-scrollbar-thumb:hover { background: var(--bg-panel-soft); }
+.notice-list::-webkit-scrollbar-thumb { background: var(--chip-border); border-radius: 3px; }
+.notice-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
 
+/* 공지 항목 — 본문 텍스트가 얹히는 곳이므로 진한 칩 */
 .notice-item {
-  background: var(--bg-panel-soft);
-  border: 1px solid var(--border-soft);
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
   border-radius: 8px;
   padding: 10px 12px;
 }
 
-.notice-item.severity-urgent {
-  border-color: var(--danger);
-  background: rgba(239, 68, 68, 0.08);
+/* 심각도 강조 배경은 접힌 상태에서만 — 펼치면 본문은 중립 칩 위에서 읽힘.
+   (강조는 배지·테두리가 이어받음) */
+.notice-item.severity-urgent:not(.is-expanded) {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(72, 24, 30, 0.5);
 }
 
-.notice-item.severity-event {
-  border-color: var(--warning);
-  background: rgba(245, 158, 11, 0.08);
+.notice-item.severity-event:not(.is-expanded) {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(70, 52, 16, 0.48);
 }
+
+.notice-item.severity-urgent.is-expanded { border-color: rgba(239, 68, 68, 0.35); }
+.notice-item.severity-event.is-expanded  { border-color: rgba(245, 158, 11, 0.32); }
 
 /* 클릭 가능한 헤더 (button 태그) */
 .notice-item-head {
@@ -1444,6 +1714,7 @@ select.text-input {
   cursor: pointer;
   text-align: left;
   transition: opacity 0.15s;
+  text-shadow: var(--tsh);
 }
 
 .notice-item-head:hover {
@@ -1462,7 +1733,7 @@ select.text-input {
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.05);
   font-size: 20px;
   line-height: 1;
   color: var(--text-mute);
@@ -1489,9 +1760,10 @@ select.text-input {
   letter-spacing: 0.5px;
   padding: 2px 8px;
   border-radius: 8px;
-  background: var(--border-soft);
+  background: rgba(255, 255, 255, 0.13);
   color: var(--text-primary);
   flex-shrink: 0;
+  text-shadow: none;
 }
 
 .severity-urgent .notice-badge {
@@ -1547,12 +1819,12 @@ select.text-input {
 }
 
 .notice-body::-webkit-scrollbar { width: 5px; }
-.notice-body::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 3px; }
+.notice-body::-webkit-scrollbar-thumb { background: var(--chip-border); border-radius: 3px; }
 
 .notice-more {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px dashed var(--border-soft);
+  border-top: 1px dashed var(--chip-border);
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -1584,9 +1856,30 @@ select.text-input {
 .notice-body a { color: var(--accent-teal); text-decoration: none; }
 .notice-body a:hover { text-decoration: underline; }
 .notice-body code {
-  background: var(--bg-panel);
+  background: rgba(255, 255, 255, 0.08);
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 12px;
   font-family: ui-monospace, Consolas, monospace;
+}
+
+/* ── 인라인 모달 콘텐츠 공용 (설치 위치/덮어쓰기 확인 등) ── */
+.modal-path-box {
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+.modal-path-label {
+  font-size: 11px;
+  color: var(--text-mute);
+  margin-bottom: 4px;
+}
+
+.modal-path-value {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  text-shadow: none;
 }

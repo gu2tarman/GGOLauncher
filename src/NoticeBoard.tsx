@@ -40,7 +40,7 @@ export function NoticeBoard({ title, items, loading, error, onRetry }: Props) {
 
   return (
     <div className="notice-card">
-      <header className="panel-header">📢 {title}</header>
+      <header className="panel-header">{title}</header>
       <div className="notice-list">
         {error && (
           <div className="notice-error" title={error}>

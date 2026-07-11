@@ -39,6 +39,38 @@ jobs:
       - name: Install npm deps
         run: npm ci
 
+      - name: Validate release version and bundled assets
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+          $packageVersion = (Get-Content -Raw -Encoding UTF8 "package.json" | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content -Raw -Encoding UTF8 "src-tauri/tauri.conf.json" | ConvertFrom-Json).version
+          $cargoText = Get-Content -Raw -Encoding UTF8 "src-tauri/Cargo.toml"
+          $cargoVersion = [regex]::Match($cargoText, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+
+          $versions = [ordered]@{
+            tag = $tagVersion
+            package = $packageVersion
+            tauri = $tauriVersion
+            cargo = $cargoVersion
+          }
+          $versions.GetEnumerator() | ForEach-Object { Write-Host "$($_.Key)=$($_.Value)" }
+          if (@($versions.Values | Select-Object -Unique).Count -ne 1) {
+            throw "Release version mismatch: tag/package/tauri/cargo must be identical"
+          }
+
+          $requiredAssets = @(
+            "public/bg-default.jpg",
+            "public/fonts/PretendardVariable.woff2",
+            "public/fonts/LICENSE-Pretendard.txt"
+          )
+          foreach ($asset in $requiredAssets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+              throw "Required bundled asset missing: $asset"
+            }
+            Write-Host "asset=$asset size=$((Get-Item -LiteralPath $asset).Length)"
+          }
+
       - name: Tauri build
         run: npm run tauri build
 
