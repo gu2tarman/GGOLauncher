@@ -17,11 +17,12 @@
 :root {
   --bg-deep:       #060a18;
 
-  /* 유리 패널 (구역 컨테이너: 사이드바/프로필/플러그인/공지) */
-  --glass:         rgba(10, 15, 32, 0.55);
+  /* 유리 패널 (구역 컨테이너: 사이드바/프로필/플러그인/공지)
+     투명도는 배포 초기값(α.55/블러14)과 목업(블러無)의 중간으로 확정 */
+  --glass:         rgba(10, 15, 32, 0.5);
   --glass-strong:  rgba(8, 12, 26, 0.8);    /* 모달 등 텍스트 밀도 높은 곳 */
   --glass-border:  rgba(255, 255, 255, 0.1);
-  --blur:          14px;
+  --blur:          10px;
 
   /* 칩 (패널 내부 아이템: 공지 항목/플러그인/퀵카드/계정행)
      유리보다 어둡고 불투명 — 본문 텍스트 가독성 담당.
@@ -129,7 +130,7 @@ button:focus-visible,
   gap: 0;
   padding: 16px 14px 14px;
   overflow: hidden;
-  background: var(--glass);
+  background: rgba(10, 15, 32, 0.4);   /* 경량화 실험: --glass보다 한 단계 투명 */
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   backdrop-filter: blur(var(--blur));
@@ -179,7 +180,7 @@ button:focus-visible,
 .server-status-badge {
   width: 100%;
   margin-bottom: 18px;
-  background: var(--chip);
+  background: rgba(16, 23, 45, 0.35);   /* 경량화 실험 */
   border: 1px solid var(--chip-border);
   border-radius: 999px;
   padding: 6px 12px;
@@ -240,9 +241,9 @@ button:focus-visible,
 
 .side-btn {
   position: relative;
-  background: var(--chip);
+  background: rgba(255, 255, 255, 0.03);   /* 경량화 실험: 고스트 문법 */
   color: var(--text-primary);
-  border: 1px solid var(--chip-border);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   padding: 10px 12px;
   border-radius: var(--radius-md);
   font-size: 14px;
@@ -253,7 +254,7 @@ button:focus-visible,
 }
 
 .side-btn:hover:not(:disabled) {
-  background: var(--chip-hover);
+  background: rgba(255, 255, 255, 0.08);
   border-color: var(--accent-teal);
 }
 
@@ -314,6 +315,22 @@ button:focus-visible,
   }
 }
 
+/* 비상 격상 배지 — sidebar.json의 badge 필드로 원격 점등 (빨강) */
+.badge-alert {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: 9px;
+  background: var(--danger);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-shadow: none;
+}
+
 /* "필독" 배지 — badge-soon과 동일 레이아웃, 강조색 */
 .badge-must {
   position: absolute;
@@ -363,27 +380,28 @@ button:focus-visible,
   margin-top: 3px;
 }
 
-/* MULTI LOGIN — 앤틱 골드 (배경 아트·로고와 동일 웜톤, PLAY와 동급 위계) */
+/* MULTI LOGIN — 고스트 골드, 호버 시 딥 골드로 채움 (PLAY와 동일 문법) */
 .btn-multi {
-  background: linear-gradient(150deg, rgba(232, 207, 143, 0.92) 0%, rgba(201, 162, 39, 0.92) 55%, rgba(154, 118, 28, 0.92) 100%);
-  color: #241c07;
+  background: rgba(201, 161, 54, 0.11);
+  color: #e3c471;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 1.5px;
-  border: 1px solid rgba(240, 220, 165, 0.45);
+  border: 2px solid rgba(201, 161, 54, 0.68);
   border-radius: var(--radius-lg);
   font-family: inherit;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 8px 24px rgba(201, 162, 39, 0.26), inset 0 1px 0 rgba(255, 244, 214, 0.55);
   cursor: pointer;
-  transition: filter 0.15s, box-shadow 0.2s, transform 0.08s;
-  text-shadow: none;
+  transition: background 0.16s, color 0.16s, border-color 0.16s, box-shadow 0.16s, transform 0.08s;
+  text-shadow: var(--tsh);
 }
 
+.btn-multi:focus-visible:not(:disabled),
 .btn-multi:hover:not(:disabled) {
-  filter: brightness(1.08);
-  box-shadow: 0 10px 28px rgba(201, 162, 39, 0.36), inset 0 1px 0 rgba(255, 244, 214, 0.6);
+  background: linear-gradient(180deg, #c9a136 0%, #97741b 100%);
+  color: #241a05;
+  border-color: rgba(255, 244, 210, 0.35);
+  box-shadow: 0 6px 20px rgba(201, 161, 54, 0.35), inset 0 1px 0 rgba(255, 244, 210, 0.3);
+  text-shadow: none;
   transform: translateY(-1px);
 }
 
@@ -403,6 +421,59 @@ button:focus-visible,
 .top-actions-3col .btn-play {
   font-size: 22px;
 }
+
+/* 긴급 공지 상단 배너 — 최근 urgent 공지를 공지 카드 밖으로 격상 (경보 언어: solid red) */
+.urgent-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+  text-shadow: none;
+}
+
+.urgent-banner-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  background: rgba(255, 255, 255, 0.22);
+  padding: 2px 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.urgent-banner-msg {
+  flex: 1;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.urgent-banner-date {
+  font-size: 11px;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.urgent-banner-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.urgent-banner-close:hover { color: #fff; background: rgba(255, 255, 255, 0.15); }
 
 /* 런처 자기 업데이트 배너 — 경보 언어는 solid 유지 (배경 위 확실히 부각) */
 .self-update-banner {
@@ -610,28 +681,32 @@ button:focus-visible,
 }
 
 /* ── PLAY / 업데이트 버튼 ─────────────────────────── */
-/* PLAY — MULTI와 동일 문법: 밝은톤→본색→딥톤 3단 그라데이션 + 상단 하이라이트 */
+/* PLAY — 고스트(옅은 틴트+원색 테두리·글자), 호버 시 딥 틸로 채움 (선호조사 4안) */
 .btn-play {
-  background: linear-gradient(150deg, rgba(158, 240, 227, 0.92) 0%, rgba(45, 212, 191, 0.92) 55%, rgba(12, 128, 115, 0.92) 100%);
-  color: #04231e;
+  background: rgba(45, 212, 191, 0.11);
+  color: #7ee8da;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 2px;
-  border: 1px solid rgba(182, 246, 236, 0.45);
+  border: 2px solid rgba(45, 212, 191, 0.62);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 24px rgba(45, 212, 191, 0.28), inset 0 1px 0 rgba(230, 255, 250, 0.55);
-  transition: filter 0.15s, box-shadow 0.2s, transform 0.08s;
-  text-shadow: none;
+  transition: background 0.16s, color 0.16s, border-color 0.16s, box-shadow 0.16s, transform 0.08s;
+  text-shadow: var(--tsh);
 }
 
-.btn-play:hover {
-  filter: brightness(1.08);
+.btn-play:focus-visible:not(:disabled),
+.btn-play:hover:not(:disabled) {
+  background: linear-gradient(180deg, #16a891 0%, #0d7f6e 100%);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 6px 20px rgba(45, 212, 191, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   transform: translateY(-1px);
-  box-shadow: 0 10px 28px rgba(45, 212, 191, 0.38), inset 0 1px 0 rgba(230, 255, 250, 0.6);
 }
 
-.btn-play:active {
-  transform: translateY(1px);
+.btn-play:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.96);
 }
 
 .btn-update {

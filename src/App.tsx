@@ -58,12 +58,25 @@ const isGuideButtonPosition = (groupIndex: number, buttonIndex: number) =>
 type LinkButtonProps = {
   label: string;
   url?: string;
+  /** 가이드 미열람 강조 (로컬) */
   highlight?: boolean;
+  /** 비상 격상 (sidebar.json 원격): 펄스 강조 */
+  remoteHighlight?: boolean;
+  /** 비상 격상 (sidebar.json 원격): 빨간 배지 텍스트 */
+  badge?: string;
   onActivate?: () => void;
 };
 
-function LinkButton({ label, url, highlight, onActivate }: LinkButtonProps) {
+function LinkButton({
+  label,
+  url,
+  highlight,
+  remoteHighlight,
+  badge,
+  onActivate,
+}: LinkButtonProps) {
   const disabled = !url;
+  const pulse = highlight || remoteHighlight;
   const onClick = () => {
     if (!url) return;
     onActivate?.();
@@ -72,7 +85,7 @@ function LinkButton({ label, url, highlight, onActivate }: LinkButtonProps) {
   return (
     <button
       className={`side-btn ${disabled ? "side-btn-disabled" : ""} ${
-        highlight ? "side-btn-highlight" : ""
+        pulse ? "side-btn-highlight" : ""
       }`}
       onClick={onClick}
       disabled={disabled}
@@ -80,7 +93,11 @@ function LinkButton({ label, url, highlight, onActivate }: LinkButtonProps) {
     >
       {label}
       {disabled && <span className="badge-soon">준비중</span>}
-      {highlight && !disabled && <span className="badge-must">필독</span>}
+      {/* 원격 배지(비상) 우선, 없으면 가이드 필독 배지 */}
+      {!disabled && badge && <span className="badge-alert">{badge}</span>}
+      {!disabled && !badge && highlight && (
+        <span className="badge-must">필독</span>
+      )}
     </button>
   );
 }
@@ -179,6 +196,8 @@ function App() {
   const [noticeError, setNoticeError] = useState<string | null>(null);
   const [noticeRetryNonce, setNoticeRetryNonce] = useState(0);
   const noticeBoardRef = useRef<NoticeBoardData | null>(null);
+  // 긴급 공지 상단 배너 — 세션 내 닫은 공지 id (재시작 시 다시 표시: 비상 정보라 의도적)
+  const [urgentDismissed, setUrgentDismissed] = useState<string[]>([]);
 
   useEffect(() => {
     getVersion()
@@ -407,6 +426,22 @@ function App() {
       ui: { ...settings.ui, guide_opened: true },
     });
   };
+
+  // 최근 3일 내 urgent 공지 중 가장 최신 1건을 상단 배너로 격상.
+  // (오래된 urgent가 공지 목록에 남아 있어도 배너로는 안 올라옴)
+  const URGENT_BANNER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+  const urgentNotice = (() => {
+    if (!noticeBoard) return null;
+    const all = [...(noticeBoard.margo ?? []), ...(noticeBoard.ggouo ?? [])];
+    const now = Date.now();
+    const fresh = all.filter((n) => {
+      if (n.severity !== "urgent" || urgentDismissed.includes(n.id)) return false;
+      const t = Date.parse(n.date);
+      return !Number.isNaN(t) && now - t <= URGENT_BANNER_WINDOW_MS;
+    });
+    fresh.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+    return fresh[0] ?? null;
+  })();
 
   const profile = activeProfile(settings);
   const hasProfile = !!profile;
@@ -703,6 +738,8 @@ function App() {
                   label={b.label}
                   url={b.url ?? undefined}
                   highlight={isGuide && !settings?.ui?.guide_opened}
+                  remoteHighlight={b.highlight === true}
+                  badge={b.badge ?? undefined}
                   onActivate={isGuide ? markGuideOpened : undefined}
                 />
               );
@@ -713,6 +750,29 @@ function App() {
 
       {/* ── Right ────────────────────────── */}
       <main className="right-column">
+        {/* 긴급 배너는 표시 전용. 실제 비상 시 클릭 연결이 필요해지면:
+            공지에 url 필드를 넣고 아래 div에
+            onClick={() => urgentNotice.url && api.openExternal(urgentNotice.url)}
+            + style={{ cursor: "pointer" }} 를 추가하면 됨 (✕ 버튼은 stopPropagation 필요). */}
+        {urgentNotice && (
+          <div className="urgent-banner" role="alert">
+            <span className="urgent-banner-label">긴급</span>
+            <span className="urgent-banner-msg" title={urgentNotice.title}>
+              {urgentNotice.title}
+            </span>
+            <span className="urgent-banner-date">{urgentNotice.date}</span>
+            <button
+              className="urgent-banner-close"
+              onClick={() =>
+                setUrgentDismissed((d) => [...d, urgentNotice.id])
+              }
+              aria-label="긴급 배너 닫기"
+              title="닫기 (공지 목록에는 그대로 남음)"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {settings && !settings.ui?.onboarding_dismissed && (
           <OnboardingBanner
             settings={settings}

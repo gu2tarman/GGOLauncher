@@ -91,6 +91,10 @@ export interface NoticeBoard {
 export interface SidebarLink {
   label: string;
   url?: string | null;
+  /** 비상 격상: true면 버튼 펄스 강조 (원격 점등) */
+  highlight?: boolean | null;
+  /** 비상 격상: 버튼 우측 빨간 배지 텍스트 (예: "긴급") */
+  badge?: string | null;
 }
 
 export interface SidebarGroup {

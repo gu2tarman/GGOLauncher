@@ -14,6 +14,12 @@ pub struct SidebarLink {
     /// null이면 "준비중" 상태로 표시.
     #[serde(default)]
     pub url: Option<String>,
+    /// 비상 격상: true면 버튼 펄스 강조 (원격 점등)
+    #[serde(default)]
+    pub highlight: Option<bool>,
+    /// 비상 격상: 버튼 우측 빨간 배지 텍스트 (예: "긴급")
+    #[serde(default)]
+    pub badge: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
