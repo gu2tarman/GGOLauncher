@@ -1,6 +1,7 @@
 mod crypto;
 mod cuo_profiles;
 mod launcher;
+mod multiclient;
 mod notice;
 mod paths;
 mod plugins;
@@ -173,7 +174,11 @@ fn decrypt_password(stored: String) -> String {
 // ── PLAY ──────────────────────────────────────────────────
 /// 단일 PLAY. account_id가 None이면 무인증 spawn (사용자가 CUO에서 직접 입력).
 #[tauri::command]
-fn cuo_launch(profile_id: String, account_id: Option<String>) -> Result<(), String> {
+fn cuo_launch(
+    profile_id: String,
+    account_id: Option<String>,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<(), String> {
     let s = settings::load()?;
     let account = if let Some(aid) = account_id {
         s.profiles
@@ -184,13 +189,91 @@ fn cuo_launch(profile_id: String, account_id: Option<String>) -> Result<(), Stri
     } else {
         None
     };
-    launcher::launch(&profile_id, account.as_ref())
+    launcher::launch(&profile_id, account.as_ref(), stage0.inner())
 }
 
 /// MULTI LOGIN — 프로필 안 모든 계정 순차 spawn. 반환: 실행된 계정 수.
 #[tauri::command]
-async fn cuo_launch_multi(profile_id: String, delay_ms: Option<u64>) -> Result<usize, String> {
-    launcher::launch_multi(&profile_id, delay_ms.unwrap_or(2000)).await
+async fn cuo_launch_multi(
+    profile_id: String,
+    delay_ms: Option<u64>,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<launcher::MultiLaunchResult, String> {
+    launcher::launch_multi(&profile_id, delay_ms.unwrap_or(2000), stage0.inner()).await
+}
+
+#[tauri::command]
+fn multiclient_session_status(
+    profile_id: String,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<multiclient::MultiSessionStatus, String> {
+    launcher::multi_session_status(&profile_id, stage0.inner())
+}
+
+#[tauri::command]
+fn multiclient_group_control(
+    profile_id: String,
+    action: String,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<launcher::GroupControlResult, String> {
+    launcher::control_secondary_group(&profile_id, &action, stage0.inner())
+}
+
+/// Read-only Stage 0 snapshot. When GGO_MULTICLIENT_STAGE0 is not exactly `1`,
+/// the command reports disabled state and performs no monitor enumeration.
+#[tauri::command]
+fn multiclient_stage0_diagnostics(
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> multiclient::Stage0Diagnostics {
+    stage0.diagnostics()
+}
+
+/// Explicit diagnostics-only proof that CE reconnects after a transient pipe
+/// disconnect while the launcher and game process remain alive.
+#[tauri::command]
+fn multiclient_stage0_disconnect_broker_test(
+    profile_id: String,
+    account_id: String,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<(), String> {
+    stage0.disconnect_broker_session_for_test(&profile_id, &account_id)
+}
+
+/// Explicit Stage 1B proof: move exactly one verified SDL game window to a
+/// secondary-monitor 2x2 cell. The original WINDOWPLACEMENT stays in memory.
+#[tauri::command]
+fn multiclient_stage1b_move_test(
+    runtime_session_id: u64,
+    slot: String,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<multiclient::SingleWindowTestResult, String> {
+    stage0.move_single_window_test(runtime_session_id, &slot)
+}
+
+/// Restore the exact WINDOWPLACEMENT captured before Stage 1B moved the window.
+#[tauri::command]
+fn multiclient_stage1b_restore_test(
+    runtime_session_id: u64,
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<multiclient::SingleWindowTestResult, String> {
+    stage0.restore_single_window_test(runtime_session_id)
+}
+
+/// Position exactly six verified game windows without changing their size:
+/// sessions #1-#2 on the primary monitor and #3-#6 on a secondary 2x2 grid.
+#[tauri::command]
+fn multiclient_stage1b_position_six_test(
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<multiclient::GroupWindowTestResult, String> {
+    stage0.position_six_windows_test()
+}
+
+/// Restore every in-memory placement captured by explicit window tests.
+#[tauri::command]
+fn multiclient_stage1b_restore_all_test(
+    stage0: tauri::State<'_, multiclient::Stage0State>,
+) -> Result<multiclient::GroupWindowTestResult, String> {
+    stage0.restore_all_window_tests()
 }
 
 // ── 플러그인 ──────────────────────────────────────────────
@@ -296,7 +379,9 @@ async fn launcher_apply_update(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let stage0 = multiclient::Stage0State::from_environment();
     tauri::Builder::default()
+        .manage(stage0)
         .invoke_handler(tauri::generate_handler![
             open_external,
             launcher_init,
@@ -312,6 +397,14 @@ pub fn run() {
             cuo_select_directory,
             cuo_launch,
             cuo_launch_multi,
+            multiclient_session_status,
+            multiclient_group_control,
+            multiclient_stage0_diagnostics,
+            multiclient_stage0_disconnect_broker_test,
+            multiclient_stage1b_move_test,
+            multiclient_stage1b_restore_test,
+            multiclient_stage1b_position_six_test,
+            multiclient_stage1b_restore_all_test,
             encrypt_password,
             decrypt_password,
             add_plugin,

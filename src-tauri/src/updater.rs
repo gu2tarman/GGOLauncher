@@ -327,11 +327,9 @@ where
         if let crate::paths::FolderKind::OriginalCuo =
             crate::paths::detect_folder_kind(&cuo_dir.to_string_lossy())
         {
-            return Err(
-                "ORIGINAL_CUO_BLOCKED: 원본 ClassicUO 폴더로 감지됨. \
+            return Err("ORIGINAL_CUO_BLOCKED: 원본 ClassicUO 폴더로 감지됨. \
                  UI 확인을 거친 뒤 다시 시도하세요."
-                    .into(),
-            );
+                .into());
         }
     }
 
@@ -479,7 +477,10 @@ struct TmpGuard {
 
 impl TmpGuard {
     fn new() -> Self {
-        Self { files: Vec::new(), committed: false }
+        Self {
+            files: Vec::new(),
+            committed: false,
+        }
     }
     fn push(&mut self, tmp: PathBuf, dest: PathBuf) {
         self.files.push((tmp, dest));

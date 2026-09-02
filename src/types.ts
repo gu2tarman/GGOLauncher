@@ -16,6 +16,8 @@ export interface Account {
   display_name?: string | null;
   /** MULTI LOGIN 포함 여부. null/undefined = 레거시(인덱스<6이면 true) */
   multi_enabled?: boolean | null;
+  /** MULTI LOGIN에서만 적용하는 세컨 모니터 2x2 슬롯. 미지정이면 창 관리 안 함. */
+  secondary_slot?: "r0c0" | "r0c1" | "r1c0" | "r1c1" | null;
 }
 
 export interface CuoProfileCandidate {
@@ -118,6 +120,194 @@ export interface ServerEndpoint {
 export type ServerStatus =
   | { state: "online"; latency_ms: number }
   | { state: "offline"; reason: string };
+
+// ── Stage 0 Multi-client Diagnostics ──────────────────
+export interface MultiSessionStatus {
+  selected_count: number;
+  active_count: number;
+  pending_count: number;
+  untracked_count: number;
+  missing_count: number;
+}
+
+export interface MultiLaunchResult {
+  selected_count: number;
+  launched_count: number;
+  already_running_count: number;
+  layout_warning: string | null;
+}
+
+export type GroupControlAction = "minimize" | "restore_preset" | "group_raise";
+
+export interface GroupControlResult {
+  action: GroupControlAction;
+  succeeded_count: number;
+  pending_count: number;
+  failed_count: number;
+  accounts: Array<{
+    account_id: string;
+    slot: string;
+    status: "success" | "pending" | "failed";
+    message: string | null;
+    window: {
+      action: string;
+      pid: number;
+      hwnd: string;
+      hwnd_generation: number;
+      is_minimized: boolean | null;
+      dpi: number | null;
+    } | null;
+  }>;
+}
+
+export interface Stage0SignedRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export interface Stage0GridCell {
+  slot: string;
+  rect: Stage0SignedRect;
+}
+
+export interface Stage0ActiveSession {
+  runtime_session_id: number;
+  profile_id: string;
+  account_id: string;
+  pid: number;
+  process_creation_time_filetime_100ns: string | null;
+  process_creation_time_error: string | null;
+  launcher_observed_spawn_time_unix_ms: number;
+}
+
+export interface Stage0RecentExit extends Stage0ActiveSession {
+  launcher_observed_exit_time_unix_ms: number;
+  exit_code: number | null;
+  success: boolean;
+}
+
+export interface Stage0RegistryWarning {
+  code: string;
+  profile_id: string | null;
+  account_id: string | null;
+  runtime_session_ids: number[];
+  message: string;
+}
+
+export interface Stage0RegistrySnapshot {
+  active_sessions: Stage0ActiveSession[];
+  recent_exits: Stage0RecentExit[];
+  untracked_launches: Array<{
+    code: string;
+    profile_id: string;
+    account_id: string | null;
+    launcher_observed_spawn_time_unix_ms: number;
+  }>;
+  warnings: Stage0RegistryWarning[];
+}
+
+export interface Stage0MonitorDryRun {
+  monitor: {
+    device_name: string;
+    is_primary: boolean;
+    monitor_rect: Stage0SignedRect;
+    work_area: Stage0SignedRect;
+  };
+  cells: Stage0GridCell[] | null;
+  layout_error: string | null;
+}
+
+export interface Stage1AWindowCandidate {
+  hwnd: string;
+  class_name: string;
+  title: string;
+  is_visible: boolean;
+  has_owner: boolean;
+  eligible_game_window: boolean;
+  exclusion_reason: string | null;
+  show_cmd: number | null;
+  is_minimized: boolean | null;
+  dpi: number | null;
+  style: string;
+  ex_style: string;
+  window_rect: Stage0SignedRect | null;
+  normal_rect: Stage0SignedRect | null;
+  client_rect_screen: Stage0SignedRect | null;
+}
+
+export interface Stage1AProcessWindowInspection {
+  pid: number;
+  expected_process_creation_time_filetime_100ns: string | null;
+  observed_process_creation_time_filetime_100ns: string | null;
+  process_creation_time_matches: boolean | null;
+  selected_hwnd: string | null;
+  management_eligible: boolean;
+  status: string;
+  candidates: Stage1AWindowCandidate[];
+  warnings: string[];
+}
+
+export interface Stage1ASessionWindow {
+  runtime_session_id: number;
+  profile_id: string;
+  account_id: string;
+  inspection: Stage1AProcessWindowInspection;
+}
+
+export interface Stage1BWindowActionResult {
+  action: "move_test" | "position_only_test" | "restore_test";
+  pid: number;
+  hwnd: string;
+  requested_outer_rect: Stage0SignedRect | null;
+  actual_window_rect: Stage0SignedRect | null;
+  actual_normal_rect: Stage0SignedRect | null;
+  actual_client_rect_screen: Stage0SignedRect | null;
+  requested_outer_rect_matches: boolean | null;
+  requested_position_matches: boolean | null;
+  show_cmd: number | null;
+  is_minimized: boolean | null;
+  dpi: number | null;
+}
+
+export interface Stage1BGroupWindowTestResult {
+  action: "position_six_test" | "restore_all_test";
+  windows: Stage1BSingleWindowTestResult[];
+}
+
+export interface Stage1BSingleWindowTestResult {
+  runtime_session_id: number;
+  monitor_device_name: string;
+  slot: string;
+  window: Stage1BWindowActionResult;
+}
+
+export interface Stage0Diagnostics {
+  enabled: boolean;
+  feature_flag: string;
+  registry: Stage0RegistrySnapshot | null;
+  registry_error: string | null;
+  broker_sessions: Array<{
+    launch_session_id: string;
+    profile_id: string;
+    account_id: string;
+    expected_pid: number | null;
+    connected: boolean;
+    window_ready: boolean;
+    managed_tile_active: boolean;
+    hwnd: string | null;
+    hwnd_generation: number | null;
+    reconnect_count: number;
+    pending_apply_layout: boolean;
+    last_error: string | null;
+  }>;
+  session_windows: Stage1ASessionWindow[];
+  window_test_restore_available_for: number[];
+  monitors: Stage0MonitorDryRun[];
+  monitor_warnings: string[];
+  monitor_error: string | null;
+}
 
 // ── Paths ──────────────────────────────────────────────
 export interface PathInfo {

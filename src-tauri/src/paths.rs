@@ -42,7 +42,9 @@ pub fn detect_folder_kind(path: &str) -> FolderKind {
                 return FolderKind::Ggoce { version: v };
             }
         }
-        return FolderKind::Ggoce { version: String::new() };
+        return FolderKind::Ggoce {
+            version: String::new(),
+        };
     }
     // ClassicUO.exe만 있고 마커 없음 → 원본 CUO
     let has_cuo_exe = ["ClassicUO.exe", "classicuo.exe", "CLASSICUO.EXE"]
@@ -82,8 +84,8 @@ pub fn inspect(path: &str) -> PathInfo {
             || p.join("anim.idx").exists()
             || p.join("art.mul").exists());
 
-    let valid_cuo = is_dir
-        && (p.join("ClassicUO.exe").exists() || p.join("classicuo.exe").exists());
+    let valid_cuo =
+        is_dir && (p.join("ClassicUO.exe").exists() || p.join("classicuo.exe").exists());
 
     PathInfo {
         exists,
@@ -185,8 +187,7 @@ fn read_pe_file_version(exe: &Path) -> Option<String> {
 
     // 2. Version info 버퍼 채우기
     let mut buf: Vec<u8> = vec![0; size as usize];
-    let ok =
-        unsafe { GetFileVersionInfoW(exe_w.as_ptr(), 0, size, buf.as_mut_ptr() as *mut _) };
+    let ok = unsafe { GetFileVersionInfoW(exe_w.as_ptr(), 0, size, buf.as_mut_ptr() as *mut _) };
     if ok == 0 {
         return None;
     }

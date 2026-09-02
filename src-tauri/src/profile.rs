@@ -52,6 +52,30 @@ pub struct Account {
     /// 기본 정책: 프로필 내 첫 6개 계정 true, 7번째부터 false.
     #[serde(default)]
     pub multi_enabled: Option<bool>,
+    /// MULTI LOGIN에서만 적용할 세컨 모니터 2x2 슬롯.
+    /// 값이 없으면 런처가 이 계정의 게임 창 위치/크기에 관여하지 않는다.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_slot: Option<SecondarySlot>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum SecondarySlot {
+    R0c0,
+    R0c1,
+    R1c0,
+    R1c1,
+}
+
+impl SecondarySlot {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::R0c0 => "r0c0",
+            Self::R0c1 => "r0c1",
+            Self::R1c0 => "r1c0",
+            Self::R1c1 => "r1c1",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -73,12 +97,33 @@ pub fn new_account_id() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     // 간단한 LCG로 4자리 base36 생성 (외부 rand crate 회피)
-    let mut x: u64 = secs.wrapping_mul(2862933555777941757).wrapping_add(3037000493);
+    let mut x: u64 = secs
+        .wrapping_mul(2862933555777941757)
+        .wrapping_add(3037000493);
     let mut suffix = String::new();
     for _ in 0..4 {
         let c = (x % 36) as u8;
-        suffix.push(if c < 10 { (b'0' + c) as char } else { (b'a' + (c - 10)) as char });
+        suffix.push(if c < 10 {
+            (b'0' + c) as char
+        } else {
+            (b'a' + (c - 10)) as char
+        });
         x /= 36;
     }
     format!("a_{:x}_{}", secs, suffix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_account_without_secondary_slot_remains_unmanaged() {
+        let account: Account = serde_json::from_str(
+            r#"{"id":"legacy","username":"user","password_encrypted":"value"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(account.secondary_slot, None);
+    }
 }

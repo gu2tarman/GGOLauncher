@@ -9,8 +9,11 @@ import { Modal } from "./Modal";
 import { OnboardingBanner } from "./OnboardingBanner";
 import { PluginPanel } from "./PluginPanel";
 import { ServerStatusBadge } from "./ServerStatusBadge";
+import { Stage0DiagnosticsPanel } from "./Stage0DiagnosticsPanel";
 import type {
+  GroupControlAction,
   LauncherManifest,
+  MultiSessionStatus,
   NoticeBoard as NoticeBoardData,
   PluginEntry,
   Profile,
@@ -461,6 +464,12 @@ function App() {
         return v == null ? i < 6 : v === true;
       }).length
     : 0;
+  const managedSecondaryCount = profile
+    ? profile.server.accounts.filter((account, index) => {
+        const enabled = account.multi_enabled == null ? index < 6 : account.multi_enabled;
+        return enabled && account.secondary_slot != null;
+      }).slice(0, 4).length
+    : 0;
   const canMultiLogin = canPlay && multiCount > 0;
   const totalProfilePages = Math.max(
     1,
@@ -477,6 +486,40 @@ function App() {
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [launchInfo, setLaunchInfo] = useState<string | null>(null);
+  const [multiStatus, setMultiStatus] = useState<MultiSessionStatus | null>(null);
+  const [groupControlling, setGroupControlling] = useState<GroupControlAction | null>(null);
+
+  const refreshMultiStatus = async (profileId: string) => {
+    try {
+      const status = await api.multiclientSessionStatus(profileId);
+      setMultiStatus(status);
+    } catch {
+      // 상태 표시는 보조 정보다. 실행 오류와 섞지 않고 다음 poll에서 재시도한다.
+    }
+  };
+
+  useEffect(() => {
+    const profileId = profile?.id;
+    if (!profileId) {
+      setMultiStatus(null);
+      return;
+    }
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const status = await api.multiclientSessionStatus(profileId);
+        if (!disposed) setMultiStatus(status);
+      } catch {
+        // 런처 초기화/프로필 전환 순간의 일시 실패는 다음 poll에서 회복한다.
+      }
+    };
+    void refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [profile?.id, multiCount]);
 
   // PLAY (단일, 무인증 — CUO 로그인 화면에서 사용자가 입력)
   const onPlay = async () => {
@@ -512,8 +555,12 @@ function App() {
     setLaunchError(null);
     setLaunchInfo(null);
     try {
-      const count = await api.cuoLaunchMulti(profile.id, 4000);
-      setLaunchInfo(`${count}개 계정 순차 실행 중...`);
+      const result = await api.cuoLaunchMulti(profile.id, 4000);
+      const summary = `신규 실행 ${result.launched_count}개 / 기존 유지 ${result.already_running_count}개`;
+      setLaunchInfo(
+        result.layout_warning ? `${summary} · ${result.layout_warning}` : summary
+      );
+      await refreshMultiStatus(profile.id);
       // 백엔드가 first_launch_completed를 마킹했으므로 settings 재로드
       try {
         const fresh = await api.getSettings();
@@ -525,6 +572,31 @@ function App() {
       setLaunchError(String(e));
     } finally {
       setLaunching(false);
+    }
+  };
+
+  const onGroupControl = async (action: GroupControlAction) => {
+    if (!profile) return;
+    setGroupControlling(action);
+    setLaunchError(null);
+    setLaunchInfo(null);
+    try {
+      const result = await api.multiclientGroupControl(profile.id, action);
+      const label =
+        action === "minimize"
+          ? "보조창 최소화"
+          : action === "restore_preset"
+          ? "보조창 복원·재배치"
+          : "보조창 앞으로 모으기";
+      setLaunchInfo(
+        `${label}: 성공 ${result.succeeded_count}개` +
+          (result.pending_count > 0 ? ` · 준비 중 ${result.pending_count}개` : "") +
+          (result.failed_count > 0 ? ` · 실패 ${result.failed_count}개` : "")
+      );
+    } catch (e) {
+      setLaunchError(String(e));
+    } finally {
+      setGroupControlling(null);
     }
   };
 
@@ -861,11 +933,24 @@ function App() {
           >
             MULTI LOGIN
             <div className="btn-sublabel">
-              {multiCount > 0
-                ? multiSelectedTotal > 6
-                  ? `${multiCount}/6개 실행 / ${accountCount}계정`
-                  : `${multiCount}개 선택 / ${accountCount}계정`
-                : "선택 0개"}
+              {multiCount === 0
+                ? "선택 0개"
+                : multiStatus && multiStatus.selected_count === multiCount
+                ? multiStatus.missing_count === 0
+                  ? `${multiCount}/${multiCount} 실행 중`
+                  : multiStatus.active_count +
+                      multiStatus.pending_count +
+                      multiStatus.untracked_count ===
+                    0
+                  ? `${multiCount}개 실행`
+                  : `${
+                      multiStatus.active_count +
+                      multiStatus.pending_count +
+                      multiStatus.untracked_count
+                    }/${multiCount} 실행 중 · ${multiStatus.missing_count}개 복구`
+                : multiSelectedTotal > 6
+                ? `${multiCount}/6개 실행 / ${accountCount}계정`
+                : `${multiCount}개 실행`}
             </div>
           </button>
           <button
@@ -882,6 +967,36 @@ function App() {
             )}
           </button>
         </div>
+
+        {managedSecondaryCount > 0 && (
+          <div className="secondary-group-controls" aria-label="보조 모니터 게임창 그룹 제어">
+            <span className="secondary-group-label">보조창 {managedSecondaryCount}개</span>
+            <button
+              className="secondary-group-button"
+              disabled={groupControlling !== null}
+              onClick={() => onGroupControl("minimize")}
+              title="보조 모니터에 지정한 게임창만 한꺼번에 최소화"
+            >
+              최소화
+            </button>
+            <button
+              className="secondary-group-button"
+              disabled={groupControlling !== null}
+              onClick={() => onGroupControl("restore_preset")}
+              title="보조 게임창을 복원하고 현재 2×2 프리셋을 CE에서 다시 적용"
+            >
+              복원·재배치
+            </button>
+            <button
+              className="secondary-group-button"
+              disabled={groupControlling !== null}
+              onClick={() => onGroupControl("group_raise")}
+              title="포커스를 바꾸지 않고 보조 게임창 그룹을 다른 창 앞으로 올림"
+            >
+              앞으로
+            </button>
+          </div>
+        )}
 
         <section className="profile-box">
           <header className="profile-header">
@@ -1062,6 +1177,8 @@ function App() {
           </div>
         )}
       </main>
+
+      <Stage0DiagnosticsPanel />
 
       {/* ── Modals ────────────────────────── */}
       {settings && (

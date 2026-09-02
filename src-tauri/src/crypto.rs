@@ -74,9 +74,8 @@ fn dpapi_encrypt(plain: &[u8]) -> Result<Vec<u8>, String> {
     if ok == 0 {
         return Err("CryptProtectData 실패".to_string());
     }
-    let result = unsafe {
-        std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec()
-    };
+    let result =
+        unsafe { std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec() };
     unsafe { LocalFree(out_blob.pbData as _) };
     Ok(result)
 }
@@ -108,9 +107,8 @@ fn dpapi_decrypt(blob: &[u8]) -> Result<Vec<u8>, String> {
     if ok == 0 {
         return Err("CryptUnprotectData 실패 (다른 사용자/PC?)".to_string());
     }
-    let result = unsafe {
-        std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec()
-    };
+    let result =
+        unsafe { std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec() };
     unsafe { LocalFree(out_blob.pbData as _) };
     Ok(result)
 }

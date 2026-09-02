@@ -18,7 +18,9 @@ pub async fn add_plugin() -> Result<Option<String>, String> {
         .add_filter("Plugin", &["dll", "exe", "zip"])
         .pick_file()
         .await;
-    let Some(handle) = handle else { return Ok(None) };
+    let Some(handle) = handle else {
+        return Ok(None);
+    };
     let selected_path = handle.path().to_path_buf();
     let extension = selected_path
         .extension()
@@ -54,15 +56,16 @@ pub async fn add_plugin() -> Result<Option<String>, String> {
 fn extract_and_locate(zip_path: &Path, target_dir: &Path) -> Result<Option<String>, String> {
     fs::create_dir_all(target_dir).map_err(|e| format!("디렉터리 생성 실패: {e}"))?;
     let file = fs::File::open(zip_path).map_err(|e| format!("ZIP 열기 실패: {e}"))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| format!("ZIP 파싱 실패: {e}"))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("ZIP 파싱 실패: {e}"))?;
     let mut dll_candidates: Vec<PathBuf> = Vec::new();
 
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("ZIP 엔트리 {i} 읽기 실패: {e}"))?;
-        let Some(enclosed) = entry.enclosed_name() else { continue };
+        let Some(enclosed) = entry.enclosed_name() else {
+            continue;
+        };
         let out_path = target_dir.join(enclosed);
         if entry.is_dir() {
             fs::create_dir_all(&out_path).map_err(|e| format!("디렉터리 생성 실패: {e}"))?;
@@ -71,10 +74,9 @@ fn extract_and_locate(zip_path: &Path, target_dir: &Path) -> Result<Option<Strin
         if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("부모 디렉터리 생성 실패: {e}"))?;
         }
-        let mut out = fs::File::create(&out_path)
-            .map_err(|e| format!("파일 쓰기 실패 {out_path:?}: {e}"))?;
-        io::copy(&mut entry, &mut out)
-            .map_err(|e| format!("복사 실패 {out_path:?}: {e}"))?;
+        let mut out =
+            fs::File::create(&out_path).map_err(|e| format!("파일 쓰기 실패 {out_path:?}: {e}"))?;
+        io::copy(&mut entry, &mut out).map_err(|e| format!("복사 실패 {out_path:?}: {e}"))?;
         out.flush().ok();
 
         if out_path.extension().map(|x| x.to_ascii_lowercase()) == Some("dll".into()) {

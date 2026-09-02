@@ -91,6 +91,7 @@ fn migrate(s: &mut Settings) {
                 character_name: None,
                 display_name: None,
                 multi_enabled: Some(true),
+                secondary_slot: None,
             });
             p.server.active_account_id = Some(id);
         }

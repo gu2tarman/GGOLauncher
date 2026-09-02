@@ -192,6 +192,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         password_encrypted: defaultPw,
         character_name: "",
         multi_enabled: currentCount < 6,
+        secondary_slot: null,
       };
       return {
         ...d,
@@ -266,6 +267,19 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const onSaveClick = async () => {
     if (!canSave || !draft) return;
     setSaveError(null);
+    const selectedForMulti = draft.server.accounts
+      .filter((a, i) => isMultiEnabled(a, i))
+      .slice(0, 6);
+    const assignedSlots = selectedForMulti
+      .map((a) => a.secondary_slot)
+      .filter((slot): slot is NonNullable<Account["secondary_slot"]> => slot != null);
+    const duplicateSlot = assignedSlots.find(
+      (slot, index) => assignedSlots.indexOf(slot) !== index
+    );
+    if (duplicateSlot) {
+      setSaveError(`세컨 모니터 슬롯 ${duplicateSlot}이(가) 중복 지정되었습니다.`);
+      return;
+    }
     // 저장 직전 — draft의 평문 비밀번호를 다시 암호화.
     // 암호화 실패 시 저장 중단(평문 저장 금지).
     try {
@@ -554,6 +568,23 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
                     <option key={character} value={character} />
                   ))}
                 </datalist>
+                <select
+                  className="text-input account-slot"
+                  value={acc.secondary_slot ?? ""}
+                  onChange={(e) =>
+                    updateAccount(acc.id, {
+                      secondary_slot:
+                        (e.target.value as Account["secondary_slot"]) || null,
+                    })
+                  }
+                  title="MULTI LOGIN에서만 적용됩니다. 미지정 계정의 창은 런처가 이동하거나 크기를 바꾸지 않습니다."
+                >
+                  <option value="">창 자동 배치 안 함</option>
+                  <option value="r0c0">세컨 2×2 · 왼쪽 위</option>
+                  <option value="r0c1">세컨 2×2 · 오른쪽 위</option>
+                  <option value="r1c0">세컨 2×2 · 왼쪽 아래</option>
+                  <option value="r1c1">세컨 2×2 · 오른쪽 아래</option>
+                </select>
               </div>
               <button
                 type="button"

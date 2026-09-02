@@ -45,16 +45,19 @@ pub async fn check() -> Result<SelfUpdateCheck, String> {
         current_version: CURRENT_VERSION.to_string(),
         remote_version: manifest.version.clone(),
         update_available,
-        manifest: if update_available { Some(manifest) } else { None },
+        manifest: if update_available {
+            Some(manifest)
+        } else {
+            None
+        },
     })
 }
 
 /// 단순 semver 비교: "0.1.0" vs "0.2.0" 등.
 /// 잘못된 형식이면 문자열 비교로 폴백.
 fn is_newer(remote: &str, current: &str) -> bool {
-    let parse = |s: &str| -> Option<Vec<u32>> {
-        s.split('.').map(|x| x.parse::<u32>().ok()).collect()
-    };
+    let parse =
+        |s: &str| -> Option<Vec<u32>> { s.split('.').map(|x| x.parse::<u32>().ok()).collect() };
     match (parse(remote), parse(current)) {
         (Some(r), Some(c)) => r > c,
         _ => remote > current,
@@ -188,7 +191,10 @@ fn write_updater_bat(
          rem 6. 자기 삭제\r\n\
          (goto) 2>nul & del \"%~f0\"\r\n",
         cur = current_exe.display(),
-        cur_name = current_exe.file_name().and_then(|s| s.to_str()).unwrap_or("GGOLauncher.exe"),
+        cur_name = current_exe
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("GGOLauncher.exe"),
         new = new_exe.display(),
         old = old_exe,
     );

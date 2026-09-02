@@ -2,7 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CuoProfileCandidate,
   FolderKind,
+  GroupControlAction,
+  GroupControlResult,
   LauncherManifest,
+  MultiLaunchResult,
+  MultiSessionStatus,
   NoticeBoard,
   PathInfo,
   SelfUpdateCheck,
@@ -10,6 +14,9 @@ import type {
   ServerStatus,
   Settings,
   Sidebar,
+  Stage0Diagnostics,
+  Stage1BGroupWindowTestResult,
+  Stage1BSingleWindowTestResult,
   UpdateCheck,
 } from "./types";
 
@@ -49,7 +56,31 @@ export const api = {
   cuoLaunch: (profileId: string, accountId?: string | null) =>
     invoke<void>("cuo_launch", { profileId, accountId: accountId ?? null }),
   cuoLaunchMulti: (profileId: string, delayMs?: number) =>
-    invoke<number>("cuo_launch_multi", { profileId, delayMs: delayMs ?? null }),
+    invoke<MultiLaunchResult>("cuo_launch_multi", { profileId, delayMs: delayMs ?? null }),
+  multiclientSessionStatus: (profileId: string) =>
+    invoke<MultiSessionStatus>("multiclient_session_status", { profileId }),
+  multiclientGroupControl: (profileId: string, action: GroupControlAction) =>
+    invoke<GroupControlResult>("multiclient_group_control", { profileId, action }),
+  multiclientStage0Diagnostics: () =>
+    invoke<Stage0Diagnostics>("multiclient_stage0_diagnostics"),
+  multiclientStage0DisconnectBrokerTest: (profileId: string, accountId: string) =>
+    invoke<void>("multiclient_stage0_disconnect_broker_test", {
+      profileId,
+      accountId,
+    }),
+  multiclientStage1BMoveTest: (runtimeSessionId: number, slot = "r0c0") =>
+    invoke<Stage1BSingleWindowTestResult>("multiclient_stage1b_move_test", {
+      runtimeSessionId,
+      slot,
+    }),
+  multiclientStage1BRestoreTest: (runtimeSessionId: number) =>
+    invoke<Stage1BSingleWindowTestResult>("multiclient_stage1b_restore_test", {
+      runtimeSessionId,
+    }),
+  multiclientStage1BPositionSixTest: () =>
+    invoke<Stage1BGroupWindowTestResult>("multiclient_stage1b_position_six_test"),
+  multiclientStage1BRestoreAllTest: () =>
+    invoke<Stage1BGroupWindowTestResult>("multiclient_stage1b_restore_all_test"),
 
   encryptPassword: (plain: string) => invoke<string>("encrypt_password", { plain }),
   decryptPassword: (stored: string) => invoke<string>("decrypt_password", { stored }),
