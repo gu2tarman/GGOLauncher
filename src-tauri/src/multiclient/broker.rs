@@ -9,6 +9,47 @@ const MAX_MESSAGE_BYTES: usize = 32 * 1024;
 const PARTY_STATUS_WRITE_INTERVAL: Duration = Duration::from_millis(500);
 const PARTY_STATUS_ATTENTION_AFTER: Duration = Duration::from_secs(3);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GroupControlAction {
+    Minimize,
+    RestorePreset,
+    GroupRaise,
+}
+
+impl GroupControlAction {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "minimize" => Some(Self::Minimize),
+            "restore_preset" => Some(Self::RestorePreset),
+            "group_raise" => Some(Self::GroupRaise),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Minimize => "minimize",
+            Self::RestorePreset => "restore_preset",
+            Self::GroupRaise => "group_raise",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct GroupControlWork {
+    correlation_id: String,
+    connection_id: u64,
+    action: GroupControlAction,
+}
+
+#[derive(Debug)]
+struct GroupControlTarget {
+    launch_session_id: String,
+    account_id: String,
+    order: u8,
+    target: Result<BrokerWindowTarget, String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct BrokerBootstrap {
     pub pipe_name: String,
@@ -100,6 +141,8 @@ struct ExpectedSession {
     connection_id: Option<u64>,
     pipe_handle: Option<usize>,
     pending_apply_layout: bool,
+    pending_group_control_result: Option<Value>,
+    group_control_in_flight: bool,
     latest_status: Option<BrokerClientStatus>,
     last_status_received_at: Option<Instant>,
     last_error: Option<String>,
@@ -181,6 +224,8 @@ impl BrokerServer {
                 connection_id: None,
                 pipe_handle: None,
                 pending_apply_layout: false,
+                pending_group_control_result: None,
+                group_control_in_flight: false,
                 latest_status: None,
                 last_status_received_at: None,
                 last_error: None,
@@ -599,6 +644,7 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
         session.reconnect_count += 1;
         session.connection_id = Some(connection_id);
         session.pipe_handle = Some(handle_value);
+        session.pending_group_control_result = None;
         session.last_error = None;
         eprintln!(
             "[ggo-broker] authenticated profile={} account={} pid={} reconnect={}",
@@ -616,7 +662,8 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                     "window_ready.v1",
                     "apply_managed_tile.v1",
                     "client_status.v1",
-                    "party_status.v1"
+                    "party_status.v1",
+                    "group_control.v1"
                 ]
             }
         });
@@ -631,6 +678,12 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
             // The connection thread is the sole writer for this synchronous
             // pipe handle. Polling keeps it free to dispatch launcher commands
             // even when CE has no inbound heartbeat waiting to be read.
+            if let Err(error) =
+                write_pending_group_control_result(&shared, launch_session_id, handle_value)
+            {
+                set_session_error(&shared, launch_session_id, error);
+                break;
+            }
             if let Err(error) = write_pending_command(&shared, launch_session_id, handle_value) {
                 set_session_error(&shared, launch_session_id, error);
                 break;
@@ -653,6 +706,9 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                         }
                         Some("client_status") => {
                             record_client_status(&shared, launch_session_id, &message)
+                        }
+                        Some("group_control_request") => {
+                            queue_group_control(&shared, launch_session_id, &message)
                         }
                         Some("ping") => {
                             write_json_line(handle_value, &json!({ "type": "pong", "payload": {} }))
@@ -681,6 +737,7 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                     session.pipe_handle = None;
                     session.latest_status = None;
                     session.last_status_received_at = None;
+                    session.pending_group_control_result = None;
                 }
             }
         }
@@ -838,6 +895,232 @@ fn record_client_status(
     Ok(())
 }
 
+fn begin_group_control(
+    sessions: &mut HashMap<String, ExpectedSession>,
+    launch_session_id: &str,
+    message: &Value,
+) -> Result<GroupControlWork, String> {
+    let correlation_id = message
+        .get("message_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 512)
+        .ok_or_else(|| "group control message_id is missing or invalid".to_string())?;
+    let payload = message
+        .get("payload")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "group control payload is missing".to_string())?;
+    let action = payload
+        .get("action")
+        .and_then(Value::as_str)
+        .and_then(GroupControlAction::parse)
+        .ok_or_else(|| "group control action is unsupported".to_string())?;
+    let session = sessions
+        .get_mut(launch_session_id)
+        .ok_or_else(|| "group control session disappeared".to_string())?;
+    if !session.hud_leader {
+        return Err("only the authenticated HUD leader can control the group".to_string());
+    }
+    if session.group_control_in_flight {
+        return Err("a group control request is already in progress".to_string());
+    }
+    let connection_id = session
+        .connection_id
+        .ok_or_else(|| "group control connection identity is missing".to_string())?;
+    session.group_control_in_flight = true;
+    Ok(GroupControlWork {
+        correlation_id: correlation_id.to_string(),
+        connection_id,
+        action,
+    })
+}
+
+fn collect_managed_group_targets(
+    sessions: &HashMap<String, ExpectedSession>,
+    leader_session_id: &str,
+) -> Result<Vec<GroupControlTarget>, String> {
+    let leader = sessions
+        .get(leader_session_id)
+        .ok_or_else(|| "group control leader session disappeared".to_string())?;
+    if !leader.hud_leader {
+        return Err("only the authenticated HUD leader can control the group".to_string());
+    }
+
+    let mut targets = sessions
+        .iter()
+        .filter(|(session_id, session)| {
+            *session_id != leader_session_id
+                && !session.hud_leader
+                && session.profile_id == leader.profile_id
+                && session.connected
+                && session.window_ready
+                && session.managed_tile_active
+        })
+        .map(|(session_id, session)| {
+            let target = (|| {
+                Ok(BrokerWindowTarget {
+                    pid: session
+                        .expected_pid
+                        .ok_or_else(|| "expected PID is missing".to_string())?,
+                    process_creation_time: session
+                        .expected_process_creation_time
+                        .ok_or_else(|| "process creation identity is missing".to_string())?,
+                    hwnd_value: session.hwnd.ok_or_else(|| "HWND is missing".to_string())?,
+                    hwnd_generation: session
+                        .hwnd_generation
+                        .ok_or_else(|| "HWND generation is missing".to_string())?,
+                })
+            })();
+            GroupControlTarget {
+                launch_session_id: session_id.clone(),
+                account_id: session.account_id.clone(),
+                order: session.hud_order,
+                target,
+            }
+        })
+        .collect::<Vec<_>>();
+    targets.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then_with(|| left.account_id.cmp(&right.account_id))
+    });
+    Ok(targets)
+}
+
+fn queue_group_control(
+    shared: &Arc<BrokerShared>,
+    launch_session_id: &str,
+    message: &Value,
+) -> Result<(), String> {
+    let work = {
+        let mut sessions = shared
+            .sessions
+            .lock()
+            .map_err(|_| "broker session lock is poisoned".to_string())?;
+        begin_group_control(&mut sessions, launch_session_id, message)?
+    };
+    let worker_shared = Arc::clone(shared);
+    let worker_session_id = launch_session_id.to_string();
+    if let Err(error) = std::thread::Builder::new()
+        .name("ggo-group-control".to_string())
+        .spawn(move || execute_group_control(worker_shared, worker_session_id, work))
+    {
+        if let Ok(mut sessions) = shared.sessions.lock() {
+            if let Some(session) = sessions.get_mut(launch_session_id) {
+                session.group_control_in_flight = false;
+            }
+        }
+        return Err(format!("failed to start group control worker: {error}"));
+    }
+    Ok(())
+}
+
+fn execute_group_control(
+    shared: Arc<BrokerShared>,
+    leader_session_id: String,
+    work: GroupControlWork,
+) {
+    let targets = shared
+        .sessions
+        .lock()
+        .map_err(|_| "broker session lock is poisoned".to_string())
+        .and_then(|sessions| collect_managed_group_targets(&sessions, &leader_session_id));
+
+    let mut succeeded_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut errors = Vec::new();
+    let target_count = targets.as_ref().map_or(0, Vec::len);
+
+    match targets {
+        Ok(targets) => {
+            for candidate in targets {
+                let result =
+                    candidate.target.and_then(|target| match work.action {
+                        GroupControlAction::Minimize => {
+                            super::minimize_broker_window(target).map(|_| ())
+                        }
+                        GroupControlAction::RestorePreset => {
+                            super::restore_broker_window(target)?;
+                            let mut sessions = shared
+                                .sessions
+                                .lock()
+                                .map_err(|_| "broker session lock is poisoned".to_string())?;
+                            let session =
+                                sessions.get_mut(&candidate.launch_session_id).ok_or_else(
+                                    || "managed session disappeared after restore".to_string(),
+                                )?;
+                            if !session.connected
+                                || !session.managed_tile_active
+                                || session.expected_pid != Some(target.pid)
+                                || session.hwnd_generation != Some(target.hwnd_generation)
+                            {
+                                return Err("window identity changed during restore".to_string());
+                            }
+                            session.pending_apply_layout = true;
+                            Ok(())
+                        }
+                        GroupControlAction::GroupRaise => {
+                            super::raise_broker_window(target).map(|_| ())
+                        }
+                    });
+
+                match result {
+                    Ok(()) => succeeded_count += 1,
+                    Err(error) => {
+                        failed_count += 1;
+                        errors.push(format!("{}: {error}", candidate.account_id));
+                    }
+                }
+            }
+        }
+        Err(error) => {
+            failed_count = 1;
+            errors.push(error);
+        }
+    }
+
+    queue_group_control_result(
+        &shared,
+        &leader_session_id,
+        &work,
+        target_count,
+        succeeded_count,
+        failed_count,
+        errors,
+    );
+}
+
+fn queue_group_control_result(
+    shared: &Arc<BrokerShared>,
+    leader_session_id: &str,
+    work: &GroupControlWork,
+    target_count: usize,
+    succeeded_count: usize,
+    failed_count: usize,
+    errors: Vec<String>,
+) {
+    let message = json!({
+        "protocol": { "major": 1, "minor": 0 },
+        "type": "group_control_result",
+        "correlation_id": work.correlation_id,
+        "message_id": format!("group-result-{}", super::launcher_observed_time_ms()),
+        "payload": {
+            "action": work.action.as_str(),
+            "target_count": target_count,
+            "succeeded_count": succeeded_count,
+            "failed_count": failed_count,
+            "errors": errors
+        }
+    });
+    if let Ok(mut sessions) = shared.sessions.lock() {
+        if let Some(session) = sessions.get_mut(leader_session_id) {
+            session.group_control_in_flight = false;
+            if session.connected && session.connection_id == Some(work.connection_id) {
+                session.pending_group_control_result = Some(message);
+            }
+        }
+    }
+}
+
 fn collect_party_status_members(
     sessions: &HashMap<String, ExpectedSession>,
     leader_session_id: &str,
@@ -937,6 +1220,44 @@ fn set_session_error(shared: &Arc<BrokerShared>, launch_session_id: &str, error:
             session.last_error = Some(error);
         }
     }
+}
+
+#[cfg(windows)]
+fn write_pending_group_control_result(
+    shared: &Arc<BrokerShared>,
+    launch_session_id: &str,
+    handle_value: usize,
+) -> Result<bool, String> {
+    let message = {
+        let mut sessions = shared
+            .sessions
+            .lock()
+            .map_err(|_| "broker session lock is poisoned".to_string())?;
+        let session = sessions
+            .get_mut(launch_session_id)
+            .ok_or_else(|| "launch session disappeared".to_string())?;
+        if session.pipe_handle != Some(handle_value) {
+            return Err("group result targeted a stale broker connection".to_string());
+        }
+        let Some(message) = session.pending_group_control_result.take() else {
+            return Ok(false);
+        };
+        message
+    };
+
+    if let Err(error) = write_json_line(handle_value, &message) {
+        if let Ok(mut sessions) = shared.sessions.lock() {
+            if let Some(session) = sessions.get_mut(launch_session_id) {
+                if session.pipe_handle == Some(handle_value)
+                    && session.pending_group_control_result.is_none()
+                {
+                    session.pending_group_control_result = Some(message);
+                }
+            }
+        }
+        return Err(error);
+    }
+    Ok(true)
 }
 
 #[cfg(windows)]
@@ -1145,6 +1466,8 @@ mod tests {
                 connection_id: None,
                 pipe_handle: None,
                 pending_apply_layout: false,
+                pending_group_control_result: None,
+                group_control_in_flight: false,
                 latest_status: None,
                 last_status_received_at: None,
                 last_error: None,
@@ -1184,6 +1507,14 @@ mod tests {
                 "paralyzed": false,
                 "dead": false
             }
+        })
+    }
+
+    fn group_control_message(action: &str) -> Value {
+        json!({
+            "type": "group_control_request",
+            "message_id": "ce-group-1",
+            "payload": { "action": action }
         })
     }
 
@@ -1271,6 +1602,140 @@ mod tests {
         assert!(members[1].attention);
         assert_eq!(members[2].account_id, "account-expired");
         assert!(members[2].attention);
+    }
+
+    #[test]
+    fn group_control_requires_the_leader_and_allows_only_group_window_actions() {
+        let mut expected = sessions();
+        {
+            let leader = expected.get_mut("session-a").unwrap();
+            leader.connected = true;
+            leader.connection_id = Some(7);
+        }
+        let work = begin_group_control(
+            &mut expected,
+            "session-a",
+            &group_control_message("restore_preset"),
+        )
+        .unwrap();
+        assert_eq!(work.action, GroupControlAction::RestorePreset);
+        assert_eq!(work.connection_id, 7);
+        assert!(expected["session-a"].group_control_in_flight);
+        assert_eq!(
+            GroupControlAction::parse("group_raise"),
+            Some(GroupControlAction::GroupRaise)
+        );
+
+        let mut nonleader = sessions();
+        {
+            let session = nonleader.get_mut("session-a").unwrap();
+            session.hud_leader = false;
+            session.connected = true;
+            session.connection_id = Some(8);
+        }
+        assert!(begin_group_control(
+            &mut nonleader,
+            "session-a",
+            &group_control_message("minimize")
+        )
+        .unwrap_err()
+        .contains("leader"));
+
+        let mut invalid = sessions();
+        assert!(
+            begin_group_control(&mut invalid, "session-a", &group_control_message("close"))
+                .unwrap_err()
+                .contains("unsupported")
+        );
+    }
+
+    #[test]
+    fn group_control_targets_only_active_managed_peers_in_the_leader_profile() {
+        let mut expected = sessions();
+
+        let mut managed = peer("managed", 2, Instant::now());
+        managed.window_ready = true;
+        managed.managed_tile_active = true;
+        managed.expected_pid = Some(22);
+        managed.expected_process_creation_time = Some(2200);
+        managed.hwnd = Some(222);
+        managed.hwnd_generation = Some(2);
+        expected.insert("session-managed".to_string(), managed);
+
+        let mut broken_managed = peer("broken-managed", 3, Instant::now());
+        broken_managed.window_ready = true;
+        broken_managed.managed_tile_active = true;
+        broken_managed.expected_pid = Some(23);
+        expected.insert("session-broken-managed".to_string(), broken_managed);
+
+        let mut bard = peer("bard", 1, Instant::now());
+        bard.window_ready = true;
+        bard.managed_tile_active = false;
+        expected.insert("session-bard".to_string(), bard);
+
+        let mut other_profile = peer("other-profile", 4, Instant::now());
+        other_profile.profile_id = "profile-b".to_string();
+        other_profile.window_ready = true;
+        other_profile.managed_tile_active = true;
+        expected.insert("session-other-profile".to_string(), other_profile);
+
+        let mut stopped = peer("stopped", 5, Instant::now());
+        stopped.connected = false;
+        stopped.window_ready = true;
+        stopped.managed_tile_active = true;
+        expected.insert("session-stopped".to_string(), stopped);
+
+        let targets = collect_managed_group_targets(&expected, "session-a").unwrap();
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].account_id, "managed");
+        assert!(targets[0].target.is_ok());
+        assert_eq!(targets[1].account_id, "broken-managed");
+        assert!(targets[1].target.is_err());
+    }
+
+    #[test]
+    fn group_control_result_is_a_safe_noop_and_never_crosses_reconnections() {
+        let mut expected = sessions();
+        {
+            let leader = expected.get_mut("session-a").unwrap();
+            leader.connected = true;
+            leader.connection_id = Some(7);
+            leader.group_control_in_flight = true;
+        }
+        let shared = Arc::new(BrokerShared {
+            broker_instance_id: "test-broker".to_string(),
+            sessions: Mutex::new(expected),
+            next_connection_id: AtomicU64::new(1),
+        });
+        let work = GroupControlWork {
+            correlation_id: "ce-group-1".to_string(),
+            connection_id: 7,
+            action: GroupControlAction::Minimize,
+        };
+
+        queue_group_control_result(&shared, "session-a", &work, 0, 0, 0, Vec::new());
+        {
+            let sessions = shared.sessions.lock().unwrap();
+            let leader = &sessions["session-a"];
+            assert!(!leader.group_control_in_flight);
+            let result = leader.pending_group_control_result.as_ref().unwrap();
+            assert_eq!(result["payload"]["target_count"], 0);
+            assert_eq!(result["payload"]["failed_count"], 0);
+        }
+
+        {
+            let mut sessions = shared.sessions.lock().unwrap();
+            let leader = sessions.get_mut("session-a").unwrap();
+            leader.connection_id = Some(8);
+            leader.group_control_in_flight = true;
+            leader.pending_group_control_result = None;
+        }
+        queue_group_control_result(&shared, "session-a", &work, 1, 1, 0, Vec::new());
+
+        let sessions = shared.sessions.lock().unwrap();
+        let leader = &sessions["session-a"];
+        assert!(!leader.group_control_in_flight);
+        assert!(leader.pending_group_control_result.is_none());
     }
 
     #[test]
