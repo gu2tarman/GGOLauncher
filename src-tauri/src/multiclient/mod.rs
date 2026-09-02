@@ -143,8 +143,11 @@ impl Stage0State {
         &self,
         profile_id: &str,
         account_id: &str,
+        hud_leader: bool,
+        hud_order: u8,
     ) -> Result<broker::BrokerBootstrap, String> {
-        self.broker.prepare_session(profile_id, account_id)
+        self.broker
+            .prepare_session(profile_id, account_id, hud_leader, hud_order)
     }
 
     pub fn bind_broker_process(

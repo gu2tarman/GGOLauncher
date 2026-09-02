@@ -266,13 +266,29 @@ pub async fn launch_multi(
         })
         .collect::<Vec<_>>();
     let already_running_count = selected.len().saturating_sub(launch_plan.len());
+    // Keep HUD identity independent from any current or future window preset.
+    // No new leader setting or automatic failover in the first completion:
+    // the first MULTI account is the stable leader, and every other connected
+    // MULTI account is eligible for the HUD regardless of window placement.
+    let hud_leader_account_id = hud_leader_account_id(&selected)
+        .ok_or_else(|| "HUD 리더 계정을 결정할 수 없습니다.".to_string())?;
 
     let mut launched_count = 0usize;
     for (i, (account, managed_tile)) in launch_plan.iter().enumerate() {
         if i > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
-        let bootstrap = match stage0.prepare_broker_session(profile_id, &account.id) {
+        let hud_order = selected
+            .iter()
+            .position(|selected_account| selected_account.id == account.id)
+            .and_then(|index| u8::try_from(index).ok())
+            .ok_or_else(|| format!("{}: HUD 표시 순서를 결정할 수 없습니다.", account.id))?;
+        let bootstrap = match stage0.prepare_broker_session(
+            profile_id,
+            &account.id,
+            account.id == hud_leader_account_id,
+            hud_order,
+        ) {
             Ok(bootstrap) => bootstrap,
             Err(error) => {
                 for (remaining, _) in launch_plan.iter().skip(i) {
@@ -310,6 +326,10 @@ pub async fn launch_multi(
         already_running_count,
         layout_warning: managed_tile_plan.warning,
     })
+}
+
+fn hud_leader_account_id<'a>(selected: &[&'a Account]) -> Option<&'a str> {
+    selected.first().map(|account| account.id.as_str())
 }
 
 fn managed_tiles_for_accounts(selected: &[&Account]) -> Result<ManagedTilePlan, String> {
@@ -813,6 +833,15 @@ mod tests {
 
         assert_eq!(tiles.tiles, vec![None, None]);
         assert!(tiles.warning.is_none());
+    }
+
+    #[test]
+    fn hud_leader_and_member_order_do_not_depend_on_window_slots() {
+        let first = account("main", Some(SecondarySlot::R1c1));
+        let second = account("bard", None);
+
+        assert_eq!(hud_leader_account_id(&[&first, &second]), Some("main"));
+        assert_eq!(hud_leader_account_id(&[&second, &first]), Some("bard"));
     }
 
     #[test]

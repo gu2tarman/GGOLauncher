@@ -3,8 +3,11 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const MAX_MESSAGE_BYTES: usize = 32 * 1024;
+const PARTY_STATUS_WRITE_INTERVAL: Duration = Duration::from_millis(500);
+const PARTY_STATUS_ATTENTION_AFTER: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone)]
 pub struct BrokerBootstrap {
@@ -13,6 +16,46 @@ pub struct BrokerBootstrap {
     pub bootstrap_token: String,
     pub profile_id: String,
     pub account_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct BrokerClientStatus {
+    character_name: String,
+    hits: u32,
+    hits_max: u32,
+    mana: u32,
+    mana_max: u32,
+    stamina: u32,
+    stamina_max: u32,
+    weight: u32,
+    weight_max: u32,
+    backpack_items: Option<u32>,
+    backpack_max: u32,
+    poisoned: bool,
+    paralyzed: bool,
+    dead: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct PartyStatusMember {
+    account_id: String,
+    character_name: String,
+    hits: u32,
+    hits_max: u32,
+    mana: u32,
+    mana_max: u32,
+    stamina: u32,
+    stamina_max: u32,
+    weight: u32,
+    weight_max: u32,
+    backpack_items: Option<u32>,
+    backpack_max: u32,
+    poisoned: bool,
+    paralyzed: bool,
+    dead: bool,
+    attention: bool,
+    #[serde(skip)]
+    order: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +86,8 @@ pub struct BrokerWindowTarget {
 struct ExpectedSession {
     profile_id: String,
     account_id: String,
+    hud_leader: bool,
+    hud_order: u8,
     bootstrap_token: String,
     expected_pid: Option<u32>,
     expected_process_creation_time: Option<u64>,
@@ -55,6 +100,8 @@ struct ExpectedSession {
     connection_id: Option<u64>,
     pipe_handle: Option<usize>,
     pending_apply_layout: bool,
+    latest_status: Option<BrokerClientStatus>,
+    last_status_received_at: Option<Instant>,
     last_error: Option<String>,
 }
 
@@ -102,6 +149,8 @@ impl BrokerServer {
         &self,
         profile_id: &str,
         account_id: &str,
+        hud_leader: bool,
+        hud_order: u8,
     ) -> Result<BrokerBootstrap, String> {
         let launch_session_id = random_hex(16)?;
         let bootstrap_token = random_hex(32)?;
@@ -118,6 +167,8 @@ impl BrokerServer {
             ExpectedSession {
                 profile_id: profile_id.to_string(),
                 account_id: account_id.to_string(),
+                hud_leader,
+                hud_order,
                 bootstrap_token: bootstrap_token.clone(),
                 expected_pid: None,
                 expected_process_creation_time: None,
@@ -130,6 +181,8 @@ impl BrokerServer {
                 connection_id: None,
                 pipe_handle: None,
                 pending_apply_layout: false,
+                latest_status: None,
+                last_status_received_at: None,
                 last_error: None,
             },
         );
@@ -559,7 +612,12 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                 "broker_instance_id": shared.broker_instance_id,
                 "broker_pid": std::process::id(),
                 "heartbeat_interval_ms": 1000,
-                "negotiated_capabilities": ["window_ready.v1", "apply_managed_tile.v1"]
+                "negotiated_capabilities": [
+                    "window_ready.v1",
+                    "apply_managed_tile.v1",
+                    "client_status.v1",
+                    "party_status.v1"
+                ]
             }
         });
         drop(sessions);
@@ -568,11 +626,21 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
     })();
 
     if let Ok(launch_session_id) = &launch_session_id {
+        let mut last_party_status_write = Instant::now() - PARTY_STATUS_WRITE_INTERVAL;
         loop {
             // The connection thread is the sole writer for this synchronous
             // pipe handle. Polling keeps it free to dispatch launcher commands
             // even when CE has no inbound heartbeat waiting to be read.
             if let Err(error) = write_pending_command(&shared, launch_session_id, handle_value) {
+                set_session_error(&shared, launch_session_id, error);
+                break;
+            }
+            if let Err(error) = write_party_status_if_due(
+                &shared,
+                launch_session_id,
+                handle_value,
+                &mut last_party_status_write,
+            ) {
                 set_session_error(&shared, launch_session_id, error);
                 break;
             }
@@ -582,6 +650,9 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                     let result = match message.get("type").and_then(Value::as_str) {
                         Some("window_ready") => {
                             record_window_ready(&shared, launch_session_id, client_pid, &message)
+                        }
+                        Some("client_status") => {
+                            record_client_status(&shared, launch_session_id, &message)
                         }
                         Some("ping") => {
                             write_json_line(handle_value, &json!({ "type": "pong", "payload": {} }))
@@ -608,6 +679,8 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                     session.window_ready = false;
                     session.managed_tile_active = false;
                     session.pipe_handle = None;
+                    session.latest_status = None;
+                    session.last_status_received_at = None;
                 }
             }
         }
@@ -673,6 +746,189 @@ fn record_window_ready(
         managed_tile_active
     );
     Ok(())
+}
+
+fn parse_client_status(message: &Value) -> Result<Option<BrokerClientStatus>, String> {
+    let payload = message
+        .get("payload")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "client_status payload is missing".to_string())?;
+    let in_game = payload
+        .get("in_game")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "client_status in_game is invalid".to_string())?;
+    if !in_game {
+        return Ok(None);
+    }
+
+    let character_name = required_text(payload, "character_name")?.trim();
+    if character_name.is_empty() || character_name.chars().count() > 64 {
+        return Err("client_status character_name is invalid".to_string());
+    }
+
+    fn bounded_u32(
+        payload: &serde_json::Map<String, Value>,
+        key: &str,
+        maximum: u64,
+    ) -> Result<u32, String> {
+        let value = payload
+            .get(key)
+            .and_then(Value::as_u64)
+            .filter(|value| *value <= maximum)
+            .ok_or_else(|| format!("client_status {key} is invalid"))?;
+        u32::try_from(value).map_err(|_| format!("client_status {key} is invalid"))
+    }
+
+    let backpack_items = match payload.get("backpack_items") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            u32::try_from(
+                value
+                    .as_u64()
+                    .filter(|value| *value <= 10_000)
+                    .ok_or_else(|| "client_status backpack_items is invalid".to_string())?,
+            )
+            .map_err(|_| "client_status backpack_items is invalid".to_string())?,
+        ),
+    };
+
+    Ok(Some(BrokerClientStatus {
+        character_name: character_name.to_string(),
+        hits: bounded_u32(payload, "hits", 1_000_000)?,
+        hits_max: bounded_u32(payload, "hits_max", 1_000_000)?,
+        mana: bounded_u32(payload, "mana", 1_000_000)?,
+        mana_max: bounded_u32(payload, "mana_max", 1_000_000)?,
+        stamina: bounded_u32(payload, "stamina", 1_000_000)?,
+        stamina_max: bounded_u32(payload, "stamina_max", 1_000_000)?,
+        weight: bounded_u32(payload, "weight", 1_000_000)?,
+        weight_max: bounded_u32(payload, "weight_max", 1_000_000)?,
+        backpack_items,
+        backpack_max: bounded_u32(payload, "backpack_max", 10_000)?,
+        poisoned: payload
+            .get("poisoned")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| "client_status poisoned is invalid".to_string())?,
+        paralyzed: payload
+            .get("paralyzed")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| "client_status paralyzed is invalid".to_string())?,
+        dead: payload
+            .get("dead")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| "client_status dead is invalid".to_string())?,
+    }))
+}
+
+fn record_client_status(
+    shared: &Arc<BrokerShared>,
+    launch_session_id: &str,
+    message: &Value,
+) -> Result<(), String> {
+    let status = parse_client_status(message)?;
+    let mut sessions = shared
+        .sessions
+        .lock()
+        .map_err(|_| "broker session lock is poisoned".to_string())?;
+    let session = sessions
+        .get_mut(launch_session_id)
+        .ok_or_else(|| "launch session disappeared".to_string())?;
+    session.latest_status = status;
+    session.last_status_received_at = Some(Instant::now());
+    session.last_error = None;
+    Ok(())
+}
+
+fn collect_party_status_members(
+    sessions: &HashMap<String, ExpectedSession>,
+    leader_session_id: &str,
+    now: Instant,
+) -> Result<Vec<PartyStatusMember>, String> {
+    let leader = sessions
+        .get(leader_session_id)
+        .ok_or_else(|| "leader session disappeared".to_string())?;
+    if !leader.hud_leader {
+        return Ok(Vec::new());
+    }
+
+    let mut members = sessions
+        .iter()
+        .filter_map(|(session_id, session)| {
+            if session_id == leader_session_id
+                || session.profile_id != leader.profile_id
+                || !session.connected
+            {
+                return None;
+            }
+            let status = session.latest_status.as_ref()?;
+            let received_at = session.last_status_received_at?;
+            let age = now.saturating_duration_since(received_at);
+            Some(PartyStatusMember {
+                account_id: session.account_id.clone(),
+                character_name: status.character_name.clone(),
+                hits: status.hits,
+                hits_max: status.hits_max,
+                mana: status.mana,
+                mana_max: status.mana_max,
+                stamina: status.stamina,
+                stamina_max: status.stamina_max,
+                weight: status.weight,
+                weight_max: status.weight_max,
+                backpack_items: status.backpack_items,
+                backpack_max: status.backpack_max,
+                poisoned: status.poisoned,
+                paralyzed: status.paralyzed,
+                dead: status.dead,
+                attention: age >= PARTY_STATUS_ATTENTION_AFTER,
+                order: session.hud_order,
+            })
+        })
+        .collect::<Vec<_>>();
+    members.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then_with(|| left.account_id.cmp(&right.account_id))
+    });
+    Ok(members)
+}
+
+#[cfg(windows)]
+fn write_party_status_if_due(
+    shared: &Arc<BrokerShared>,
+    launch_session_id: &str,
+    handle_value: usize,
+    last_write: &mut Instant,
+) -> Result<bool, String> {
+    let now = Instant::now();
+    if now.saturating_duration_since(*last_write) < PARTY_STATUS_WRITE_INTERVAL {
+        return Ok(false);
+    }
+
+    let message = {
+        let sessions = shared
+            .sessions
+            .lock()
+            .map_err(|_| "broker session lock is poisoned".to_string())?;
+        let session = sessions
+            .get(launch_session_id)
+            .ok_or_else(|| "launch session disappeared".to_string())?;
+        if session.pipe_handle != Some(handle_value) {
+            return Err("party status targeted a stale broker connection".to_string());
+        }
+        if !session.hud_leader {
+            return Ok(false);
+        }
+        let members = collect_party_status_members(&sessions, launch_session_id, now)?;
+        json!({
+            "protocol": { "major": 1, "minor": 0 },
+            "type": "party_status",
+            "message_id": format!("party-{}", super::launcher_observed_time_ms()),
+            "payload": { "members": members }
+        })
+    };
+
+    write_json_line(handle_value, &message)?;
+    *last_write = now;
+    Ok(true)
 }
 
 fn set_session_error(shared: &Arc<BrokerShared>, launch_session_id: &str, error: String) {
@@ -875,6 +1131,8 @@ mod tests {
             ExpectedSession {
                 profile_id: "profile-a".to_string(),
                 account_id: "account-a".to_string(),
+                hud_leader: true,
+                hud_order: 0,
                 bootstrap_token: "secret-token".to_string(),
                 expected_pid: Some(std::process::id()),
                 expected_process_creation_time: None,
@@ -887,6 +1145,8 @@ mod tests {
                 connection_id: None,
                 pipe_handle: None,
                 pending_apply_layout: false,
+                latest_status: None,
+                last_status_received_at: None,
                 last_error: None,
             },
         )])
@@ -902,6 +1162,40 @@ mod tests {
                 "bootstrap_token": token
             }
         })
+    }
+
+    fn client_status_message(in_game: bool) -> Value {
+        json!({
+            "type": "client_status",
+            "payload": {
+                "in_game": in_game,
+                "character_name": "GGOImblue",
+                "hits": 92,
+                "hits_max": 100,
+                "mana": 80,
+                "mana_max": 100,
+                "stamina": 75,
+                "stamina_max": 100,
+                "weight": 374,
+                "weight_max": 456,
+                "backpack_items": 34,
+                "backpack_max": 125,
+                "poisoned": false,
+                "paralyzed": false,
+                "dead": false
+            }
+        })
+    }
+
+    fn peer(account_id: &str, order: u8, status_at: Instant) -> ExpectedSession {
+        let mut session = sessions().remove("session-a").unwrap();
+        session.account_id = account_id.to_string();
+        session.hud_leader = false;
+        session.hud_order = order;
+        session.connected = true;
+        session.latest_status = parse_client_status(&client_status_message(true)).unwrap();
+        session.last_status_received_at = Some(status_at);
+        session
     }
 
     #[test]
@@ -928,6 +1222,55 @@ mod tests {
         assert!(constant_time_eq(b"same", b"same"));
         assert!(!constant_time_eq(b"same", b"same-longer"));
         assert!(!constant_time_eq(b"same", b"diff"));
+    }
+
+    #[test]
+    fn client_status_uses_ingame_payload_and_out_of_game_clears_it() {
+        let status = parse_client_status(&client_status_message(true))
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.character_name, "GGOImblue");
+        assert_eq!(status.backpack_items, Some(34));
+        assert!(parse_client_status(&client_status_message(false))
+            .unwrap()
+            .is_none());
+
+        let mut invalid = client_status_message(true);
+        invalid["payload"]["hits"] = json!(1_000_001);
+        assert!(parse_client_status(&invalid).unwrap_err().contains("hits"));
+    }
+
+    #[test]
+    fn party_status_excludes_leader_orders_peers_and_marks_only_stale_rows() {
+        let now = Instant::now();
+        let mut expected = sessions();
+        {
+            let leader = expected.get_mut("session-a").unwrap();
+            leader.connected = true;
+            leader.latest_status = parse_client_status(&client_status_message(true)).unwrap();
+            leader.last_status_received_at = Some(now);
+        }
+        expected.insert(
+            "session-late".to_string(),
+            peer("account-late", 2, now - Duration::from_secs(4)),
+        );
+        expected.insert(
+            "session-first".to_string(),
+            peer("account-first", 1, now - Duration::from_secs(1)),
+        );
+        expected.insert(
+            "session-expired".to_string(),
+            peer("account-expired", 3, now - Duration::from_secs(10)),
+        );
+
+        let members = collect_party_status_members(&expected, "session-a", now).unwrap();
+        assert_eq!(members.len(), 3);
+        assert_eq!(members[0].account_id, "account-first");
+        assert!(!members[0].attention);
+        assert_eq!(members[1].account_id, "account-late");
+        assert!(members[1].attention);
+        assert_eq!(members[2].account_id, "account-expired");
+        assert!(members[2].attention);
     }
 
     #[test]
