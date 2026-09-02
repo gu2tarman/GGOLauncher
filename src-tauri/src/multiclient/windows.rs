@@ -260,6 +260,22 @@ pub fn raise_broker_window(target: BrokerWindowTarget) -> Result<WindowControlOb
     control_observation("group_raise", target, &inspection)
 }
 
+#[cfg(windows)]
+pub fn close_broker_window(target: BrokerWindowTarget) -> Result<WindowControlObservation, String> {
+    use windows_sys::Win32::Foundation::{GetLastError, HWND};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+
+    let inspection = inspect_broker_window(target)?;
+    let observation = control_observation("close_secondary", target, &inspection)?;
+    if unsafe { PostMessageW(target.hwnd_value as HWND, WM_CLOSE, 0, 0) } == 0 {
+        return Err(format!(
+            "PostMessageW(WM_CLOSE) failed with Windows error {}",
+            unsafe { GetLastError() }
+        ));
+    }
+    Ok(observation)
+}
+
 #[cfg(not(windows))]
 pub fn minimize_broker_window(
     target: BrokerWindowTarget,
@@ -284,6 +300,14 @@ pub fn restore_broker_window(
 pub fn raise_broker_window(target: BrokerWindowTarget) -> Result<WindowControlObservation, String> {
     Err(format!(
         "window raise is available only on Windows (pid {})",
+        target.pid
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn close_broker_window(target: BrokerWindowTarget) -> Result<WindowControlObservation, String> {
+    Err(format!(
+        "window close is available only on Windows (pid {})",
         target.pid
     ))
 }

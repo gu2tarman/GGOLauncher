@@ -132,6 +132,7 @@ function createInstallProfile(cuoPath: string, count: number): Profile {
     uo_path: "",
     cuo_path: cuoPath,
     client_version: null,
+    secondary_layout_preset: "two_by_two",
     server: {
       address: "login.uoserver.com",
       port: 2593,
@@ -468,7 +469,7 @@ function App() {
     ? profile.server.accounts.filter((account, index) => {
         const enabled = account.multi_enabled == null ? index < 6 : account.multi_enabled;
         return enabled && account.secondary_slot != null;
-      }).slice(0, 4).length
+      }).slice(0, 5).length
     : 0;
   const canMultiLogin = canPlay && multiCount > 0;
   const totalProfilePages = Math.max(
@@ -587,7 +588,9 @@ function App() {
           ? "보조창 최소화"
           : action === "restore_preset"
           ? "보조창 복원·재배치"
-          : "보조창 앞으로 모으기";
+          : action === "group_raise"
+          ? "보조창 앞으로 모으기"
+          : "보조 클라이언트 종료";
       setLaunchInfo(
         `${label}: 성공 ${result.succeeded_count}개` +
           (result.pending_count > 0 ? ` · 준비 중 ${result.pending_count}개` : "") +
@@ -968,36 +971,6 @@ function App() {
           </button>
         </div>
 
-        {managedSecondaryCount > 0 && (
-          <div className="secondary-group-controls" aria-label="보조 모니터 게임창 그룹 제어">
-            <span className="secondary-group-label">보조창 {managedSecondaryCount}개</span>
-            <button
-              className="secondary-group-button"
-              disabled={groupControlling !== null}
-              onClick={() => onGroupControl("minimize")}
-              title="보조 모니터에 지정한 게임창만 한꺼번에 최소화"
-            >
-              최소화
-            </button>
-            <button
-              className="secondary-group-button"
-              disabled={groupControlling !== null}
-              onClick={() => onGroupControl("restore_preset")}
-              title="보조 게임창을 복원하고 현재 2×2 프리셋을 CE에서 다시 적용"
-            >
-              복원·재배치
-            </button>
-            <button
-              className="secondary-group-button"
-              disabled={groupControlling !== null}
-              onClick={() => onGroupControl("group_raise")}
-              title="포커스를 바꾸지 않고 보조 게임창 그룹을 다른 창 앞으로 올림"
-            >
-              앞으로
-            </button>
-          </div>
-        )}
-
         <section className="profile-box">
           <header className="profile-header">
             <span className="profile-title-group">
@@ -1008,6 +981,43 @@ function App() {
                 </span>
               )}
             </span>
+            {managedSecondaryCount > 0 && (
+              <div
+                className="secondary-group-controls"
+                aria-label="보조 모니터 게임창 그룹 제어"
+              >
+                <span className="secondary-group-label">
+                  보조 {managedSecondaryCount}
+                </span>
+                <button
+                  className="secondary-group-button"
+                  disabled={groupControlling !== null}
+                  onClick={() => onGroupControl("minimize")}
+                  title="숨: 보조 모니터에 지정한 게임창만 한꺼번에 최소화"
+                  aria-label="보조창 전체 숨김"
+                >
+                  숨
+                </button>
+                <button
+                  className="secondary-group-button"
+                  disabled={groupControlling !== null}
+                  onClick={() => onGroupControl("restore_preset")}
+                  title="복: 보조 게임창을 복원하고 프리셋 위치와 크기를 다시 적용"
+                  aria-label="보조창 위치 및 크기 복원"
+                >
+                  복
+                </button>
+                <button
+                  className="secondary-group-button"
+                  disabled={groupControlling !== null}
+                  onClick={() => onGroupControl("group_raise")}
+                  title="앞: 포커스를 바꾸지 않고 보조 게임창 그룹을 다른 창 앞으로 올림"
+                  aria-label="보조창 전체 앞으로"
+                >
+                  앞
+                </button>
+              </div>
+            )}
             <span className="profile-version">
               ClassicUO GGO CE {ggoceVersion ? `v${ggoceVersion}` : "v—"}
             </span>

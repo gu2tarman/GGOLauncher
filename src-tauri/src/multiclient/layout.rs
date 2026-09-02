@@ -119,6 +119,31 @@ pub fn split_2x2(rect: SignedRect) -> Result<[GridCell; 4], LayoutError> {
     ])
 }
 
+/// Return the gapless 2x2 base grid plus a fifth cell centered over it.
+/// The center cell uses the same half-width/half-height footprint as a base cell.
+pub fn split_2x2_with_center(rect: SignedRect) -> Result<[GridCell; 5], LayoutError> {
+    let [top_left, top_right, bottom_left, bottom_right] = split_2x2(rect)?;
+    let width = rect.width();
+    let height = rect.height();
+    let center_width = width / 2;
+    let center_height = height / 2;
+    let center_left = i64::from(rect.left) + (width - center_width) / 2;
+    let center_top = i64::from(rect.top) + (height - center_height) / 2;
+    let center_right = center_left + center_width;
+    let center_bottom = center_top + center_height;
+    let center = GridCell {
+        slot: "center",
+        rect: SignedRect {
+            left: i32::try_from(center_left).map_err(|_| LayoutError::CoordinateOutOfRange)?,
+            top: i32::try_from(center_top).map_err(|_| LayoutError::CoordinateOutOfRange)?,
+            right: i32::try_from(center_right).map_err(|_| LayoutError::CoordinateOutOfRange)?,
+            bottom: i32::try_from(center_bottom).map_err(|_| LayoutError::CoordinateOutOfRange)?,
+        },
+    };
+
+    Ok([top_left, top_right, bottom_left, bottom_right, center])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +281,48 @@ mod tests {
                 Err(LayoutError::NonPositiveHeight { .. })
             ));
         }
+    }
+
+    #[test]
+    fn center_preset_preserves_negative_coordinates_and_base_grid() {
+        let source = SignedRect {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1040,
+        };
+        let base = split_2x2(source).unwrap();
+        let cells = split_2x2_with_center(source).unwrap();
+
+        assert_eq!(&cells[..4], &base);
+        assert_eq!(
+            cells[4],
+            GridCell {
+                slot: "center",
+                rect: SignedRect {
+                    left: -1440,
+                    top: 260,
+                    right: -480,
+                    bottom: 780,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn center_preset_keeps_odd_sized_center_inside_work_area() {
+        let source = SignedRect {
+            left: -101,
+            top: -51,
+            right: -90,
+            bottom: -40,
+        };
+        let cells = split_2x2_with_center(source).unwrap();
+        let center = cells[4].rect;
+
+        assert_eq!(center.width(), source.width() / 2);
+        assert_eq!(center.height(), source.height() / 2);
+        assert!(center.left >= source.left && center.right <= source.right);
+        assert!(center.top >= source.top && center.bottom <= source.bottom);
     }
 }

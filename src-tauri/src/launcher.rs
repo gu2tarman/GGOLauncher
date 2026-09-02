@@ -1,7 +1,7 @@
 use crate::multiclient::{
     launcher_observed_time_ms, BrokerBootstrap, ManagedTile, MultiSessionStatus, Stage0State,
 };
-use crate::profile::{Account, Profile};
+use crate::profile::{Account, Profile, SecondaryLayoutPreset, SecondarySlot};
 use crate::settings;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -134,20 +134,22 @@ pub fn control_secondary_group(
         .iter()
         .find(|profile| profile.id == profile_id)
         .ok_or_else(|| "프로필을 찾을 수 없습니다.".to_string())?;
-    let mut accounts = selected_multi_accounts(profile)
+    let selected = selected_multi_accounts(profile);
+    let leader_account_id = selected.first().map(|account| account.id.clone());
+    let mut accounts = selected
         .into_iter()
-        .filter(|account| account.secondary_slot.is_some())
+        .filter(|account| {
+            account.secondary_slot.is_some() && Some(&account.id) != leader_account_id.as_ref()
+        })
         .collect::<Vec<_>>();
-    accounts.sort_by_key(|account| match account.secondary_slot.unwrap() {
-        crate::profile::SecondarySlot::R0c0 => 0,
-        crate::profile::SecondarySlot::R0c1 => 1,
-        crate::profile::SecondarySlot::R1c0 => 2,
-        crate::profile::SecondarySlot::R1c1 => 3,
-    });
+    accounts.sort_by_key(|account| account.secondary_slot.unwrap().order());
     if accounts.is_empty() {
         return Err("현재 MULTI 대상에 보조 모니터 슬롯이 지정된 계정이 없습니다.".to_string());
     }
-    if !matches!(action, "minimize" | "restore_preset" | "group_raise") {
+    if !matches!(
+        action,
+        "minimize" | "restore_preset" | "group_raise" | "close_secondary"
+    ) {
         return Err(format!("지원하지 않는 보조창 그룹 동작입니다: {action}"));
     }
 
@@ -177,6 +179,7 @@ pub fn control_secondary_group(
                 })
             }
             "group_raise" => crate::multiclient::raise_broker_window(target),
+            "close_secondary" => crate::multiclient::close_broker_window(target),
             _ => unreachable!(),
         };
         match operation {
@@ -202,6 +205,7 @@ pub fn control_secondary_group(
             "minimize" => "minimize",
             "restore_preset" => "restore_preset",
             "group_raise" => "group_raise",
+            "close_secondary" => "close_secondary",
             _ => unreachable!(),
         },
         succeeded_count: results
@@ -246,7 +250,7 @@ pub async fn launch_multi(
 
     // 모든 검증과 모니터 계산을 첫 spawn 전에 끝낸다. 중복 슬롯이나
     // 세컨 모니터 부재로 일부 계정만 실행되는 상태를 만들지 않는다.
-    let managed_tile_plan = managed_tiles_for_accounts(&selected)?;
+    let managed_tile_plan = managed_tiles_for_accounts(&selected, profile.secondary_layout_preset)?;
     let account_ids = selected
         .iter()
         .map(|account| account.id.clone())
@@ -256,7 +260,7 @@ pub async fn launch_multi(
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    let launch_plan = selected
+    let mut launch_plan = selected
         .iter()
         .zip(managed_tile_plan.tiles)
         .filter_map(|(account, tile)| {
@@ -265,6 +269,10 @@ pub async fn launch_multi(
                 .then_some((*account, tile))
         })
         .collect::<Vec<_>>();
+    // The centered tile overlaps all four base cells by design. Keep the
+    // existing account/login order, but launch that one window last so it is
+    // visible on top immediately after a full MULTI start.
+    launch_plan.sort_by_key(|(account, _)| account.secondary_slot == Some(SecondarySlot::Center));
     let already_running_count = selected.len().saturating_sub(launch_plan.len());
     // Keep HUD identity independent from any current or future window preset.
     // No new leader setting or automatic failover in the first completion:
@@ -288,6 +296,7 @@ pub async fn launch_multi(
             &account.id,
             account.id == hud_leader_account_id,
             hud_order,
+            account.secondary_slot.map(|slot| slot.order()),
         ) {
             Ok(bootstrap) => bootstrap,
             Err(error) => {
@@ -332,10 +341,19 @@ fn hud_leader_account_id<'a>(selected: &[&'a Account]) -> Option<&'a str> {
     selected.first().map(|account| account.id.as_str())
 }
 
-fn managed_tiles_for_accounts(selected: &[&Account]) -> Result<ManagedTilePlan, String> {
+fn managed_tiles_for_accounts(
+    selected: &[&Account],
+    preset: SecondaryLayoutPreset,
+) -> Result<ManagedTilePlan, String> {
     let mut assigned = HashSet::new();
     for account in selected {
         if let Some(slot) = account.secondary_slot {
+            if !preset.allows(slot) {
+                return Err(format!(
+                    "현재 보조 모니터 프리셋에서는 {} 슬롯을 사용할 수 없습니다.",
+                    slot.as_str()
+                ));
+            }
             if !assigned.insert(slot) {
                 return Err(format!(
                     "세컨 모니터 배치 슬롯 {}이(가) 중복 지정되었습니다. 프로필 편집에서 각 계정에 서로 다른 슬롯을 선택해주세요.",
@@ -352,7 +370,7 @@ fn managed_tiles_for_accounts(selected: &[&Account]) -> Result<ManagedTilePlan, 
         });
     }
 
-    let available_tiles = crate::multiclient::secondary_managed_tiles()?;
+    let available_tiles = crate::multiclient::secondary_managed_tiles(preset)?;
     Ok(managed_tile_plan_from_available(
         selected,
         available_tiles.as_ref(),
@@ -818,7 +836,8 @@ mod tests {
         let first = account("first", Some(SecondarySlot::R0c0));
         let second = account("second", Some(SecondarySlot::R0c0));
 
-        let error = managed_tiles_for_accounts(&[&first, &second]).unwrap_err();
+        let error = managed_tiles_for_accounts(&[&first, &second], SecondaryLayoutPreset::TwoByTwo)
+            .unwrap_err();
 
         assert!(error.contains("r0c0"));
         assert!(error.contains("중복"));
@@ -829,7 +848,8 @@ mod tests {
         let first = account("first", None);
         let second = account("second", None);
 
-        let tiles = managed_tiles_for_accounts(&[&first, &second]).unwrap();
+        let tiles = managed_tiles_for_accounts(&[&first, &second], SecondaryLayoutPreset::TwoByTwo)
+            .unwrap();
 
         assert_eq!(tiles.tiles, vec![None, None]);
         assert!(tiles.warning.is_none());
@@ -857,6 +877,17 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("자동 배치를 적용하지 않았습니다"));
+    }
+
+    #[test]
+    fn center_slot_requires_the_center_preset() {
+        let center = account("center", Some(SecondarySlot::Center));
+
+        let error =
+            managed_tiles_for_accounts(&[&center], SecondaryLayoutPreset::TwoByTwo).unwrap_err();
+
+        assert!(error.contains("center"));
+        assert!(error.contains("사용할 수 없습니다"));
     }
 
     #[test]

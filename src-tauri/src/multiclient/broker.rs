@@ -14,6 +14,7 @@ enum GroupControlAction {
     Minimize,
     RestorePreset,
     GroupRaise,
+    CloseSecondary,
 }
 
 impl GroupControlAction {
@@ -22,6 +23,7 @@ impl GroupControlAction {
             "minimize" => Some(Self::Minimize),
             "restore_preset" => Some(Self::RestorePreset),
             "group_raise" => Some(Self::GroupRaise),
+            "close_secondary" => Some(Self::CloseSecondary),
             _ => None,
         }
     }
@@ -31,6 +33,7 @@ impl GroupControlAction {
             Self::Minimize => "minimize",
             Self::RestorePreset => "restore_preset",
             Self::GroupRaise => "group_raise",
+            Self::CloseSecondary => "close_secondary",
         }
     }
 }
@@ -129,6 +132,7 @@ struct ExpectedSession {
     account_id: String,
     hud_leader: bool,
     hud_order: u8,
+    managed_z_order: Option<u8>,
     bootstrap_token: String,
     expected_pid: Option<u32>,
     expected_process_creation_time: Option<u64>,
@@ -194,6 +198,7 @@ impl BrokerServer {
         account_id: &str,
         hud_leader: bool,
         hud_order: u8,
+        managed_z_order: Option<u8>,
     ) -> Result<BrokerBootstrap, String> {
         let launch_session_id = random_hex(16)?;
         let bootstrap_token = random_hex(32)?;
@@ -212,6 +217,7 @@ impl BrokerServer {
                 account_id: account_id.to_string(),
                 hud_leader,
                 hud_order,
+                managed_z_order,
                 bootstrap_token: bootstrap_token.clone(),
                 expected_pid: None,
                 expected_process_creation_time: None,
@@ -973,7 +979,7 @@ fn collect_managed_group_targets(
             GroupControlTarget {
                 launch_session_id: session_id.clone(),
                 account_id: session.account_id.clone(),
-                order: session.hud_order,
+                order: session.managed_z_order.unwrap_or(session.hud_order),
                 target,
             }
         })
@@ -1060,6 +1066,9 @@ fn execute_group_control(
                         }
                         GroupControlAction::GroupRaise => {
                             super::raise_broker_window(target).map(|_| ())
+                        }
+                        GroupControlAction::CloseSecondary => {
+                            super::close_broker_window(target).map(|_| ())
                         }
                     });
 
@@ -1454,6 +1463,7 @@ mod tests {
                 account_id: "account-a".to_string(),
                 hud_leader: true,
                 hud_order: 0,
+                managed_z_order: None,
                 bootstrap_token: "secret-token".to_string(),
                 expected_pid: Some(std::process::id()),
                 expected_process_creation_time: None,
@@ -1625,6 +1635,10 @@ mod tests {
             GroupControlAction::parse("group_raise"),
             Some(GroupControlAction::GroupRaise)
         );
+        assert_eq!(
+            GroupControlAction::parse("close_secondary"),
+            Some(GroupControlAction::CloseSecondary)
+        );
 
         let mut nonleader = sessions();
         {
@@ -1652,10 +1666,16 @@ mod tests {
     #[test]
     fn group_control_targets_only_active_managed_peers_in_the_leader_profile() {
         let mut expected = sessions();
+        {
+            let leader = expected.get_mut("session-a").unwrap();
+            leader.window_ready = true;
+            leader.managed_tile_active = true;
+        }
 
         let mut managed = peer("managed", 2, Instant::now());
         managed.window_ready = true;
         managed.managed_tile_active = true;
+        managed.managed_z_order = Some(4);
         managed.expected_pid = Some(22);
         managed.expected_process_creation_time = Some(2200);
         managed.hwnd = Some(222);
@@ -1665,6 +1685,7 @@ mod tests {
         let mut broken_managed = peer("broken-managed", 3, Instant::now());
         broken_managed.window_ready = true;
         broken_managed.managed_tile_active = true;
+        broken_managed.managed_z_order = Some(0);
         broken_managed.expected_pid = Some(23);
         expected.insert("session-broken-managed".to_string(), broken_managed);
 
@@ -1687,10 +1708,10 @@ mod tests {
 
         let targets = collect_managed_group_targets(&expected, "session-a").unwrap();
         assert_eq!(targets.len(), 2);
-        assert_eq!(targets[0].account_id, "managed");
-        assert!(targets[0].target.is_ok());
-        assert_eq!(targets[1].account_id, "broken-managed");
-        assert!(targets[1].target.is_err());
+        assert_eq!(targets[0].account_id, "broken-managed");
+        assert!(targets[0].target.is_err());
+        assert_eq!(targets[1].account_id, "managed");
+        assert!(targets[1].target.is_ok());
     }
 
     #[test]

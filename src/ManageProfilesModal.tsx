@@ -72,6 +72,7 @@ export function ManageProfilesModal({
       uo_path: "",
       cuo_path: null,
       client_version: null,
+      secondary_layout_preset: "two_by_two",
       server: {
         address: "login.uoserver.com",
         port: 2593,

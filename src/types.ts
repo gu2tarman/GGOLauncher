@@ -16,9 +16,11 @@ export interface Account {
   display_name?: string | null;
   /** MULTI LOGIN 포함 여부. null/undefined = 레거시(인덱스<6이면 true) */
   multi_enabled?: boolean | null;
-  /** MULTI LOGIN에서만 적용하는 세컨 모니터 2x2 슬롯. 미지정이면 창 관리 안 함. */
-  secondary_slot?: "r0c0" | "r0c1" | "r1c0" | "r1c1" | null;
+  /** MULTI LOGIN에서만 적용하는 보조 모니터 프리셋 슬롯. 미지정이면 창 관리 안 함. */
+  secondary_slot?: "r0c0" | "r0c1" | "r1c0" | "r1c1" | "center" | null;
 }
+
+export type SecondaryLayoutPreset = "two_by_two" | "two_by_two_center";
 
 export interface CuoProfileCandidate {
   account: string;
@@ -43,6 +45,7 @@ export interface Profile {
   cuo_path: string | null;
   server: ServerConfig;
   client_version: string | null;
+  secondary_layout_preset: SecondaryLayoutPreset;
 }
 
 export interface PluginEntry {
@@ -137,7 +140,11 @@ export interface MultiLaunchResult {
   layout_warning: string | null;
 }
 
-export type GroupControlAction = "minimize" | "restore_preset" | "group_raise";
+export type GroupControlAction =
+  | "minimize"
+  | "restore_preset"
+  | "group_raise"
+  | "close_secondary";
 
 export interface GroupControlResult {
   action: GroupControlAction;

@@ -3,8 +3,9 @@ mod layout;
 mod session;
 mod windows;
 
+use crate::profile::SecondaryLayoutPreset;
 pub(crate) use broker::{BrokerBootstrap, BrokerWindowTarget};
-use layout::{split_2x2, GridCell};
+use layout::{split_2x2, split_2x2_with_center, GridCell};
 use serde::Serialize;
 use session::{
     AccountStateCounts, ActiveProcessIdentity, RegistrySnapshot, RuntimeSessionId, SessionRegistry,
@@ -13,7 +14,8 @@ use std::collections::HashMap;
 use std::process::Child;
 use std::sync::Mutex;
 pub(crate) use windows::{
-    minimize_broker_window, raise_broker_window, restore_broker_window, WindowControlObservation,
+    close_broker_window, minimize_broker_window, raise_broker_window, restore_broker_window,
+    WindowControlObservation,
 };
 use windows::{
     MonitorDescriptor, ProcessWindowInspection, SavedWindowPlacement, WindowActionResult,
@@ -145,9 +147,15 @@ impl Stage0State {
         account_id: &str,
         hud_leader: bool,
         hud_order: u8,
+        managed_z_order: Option<u8>,
     ) -> Result<broker::BrokerBootstrap, String> {
-        self.broker
-            .prepare_session(profile_id, account_id, hud_leader, hud_order)
+        self.broker.prepare_session(
+            profile_id,
+            account_id,
+            hud_leader,
+            hud_order,
+            managed_z_order,
+        )
     }
 
     pub fn bind_broker_process(
@@ -635,8 +643,9 @@ fn secondary_test_cell(slot: &str) -> Result<(MonitorDescriptor, GridCell), Stri
     Ok((monitor, cell))
 }
 
-pub(crate) fn secondary_managed_tiles() -> Result<Option<HashMap<&'static str, ManagedTile>>, String>
-{
+pub(crate) fn secondary_managed_tiles(
+    preset: SecondaryLayoutPreset,
+) -> Result<Option<HashMap<&'static str, ManagedTile>>, String> {
     let enumeration = windows::enumerate_monitors()?;
     let Some(monitor) = enumeration
         .monitors
@@ -653,7 +662,14 @@ pub(crate) fn secondary_managed_tiles() -> Result<Option<HashMap<&'static str, M
         return Ok(None);
     };
 
-    let cells = split_2x2(monitor.work_area).map_err(|error| error.to_string())?;
+    let cells = match preset {
+        SecondaryLayoutPreset::TwoByTwo => {
+            split_2x2(monitor.work_area).map(|cells| cells.into_iter().collect::<Vec<_>>())
+        }
+        SecondaryLayoutPreset::TwoByTwoCenter => split_2x2_with_center(monitor.work_area)
+            .map(|cells| cells.into_iter().collect::<Vec<_>>()),
+    }
+    .map_err(|error| error.to_string())?;
     let mut tiles = HashMap::with_capacity(cells.len());
     for cell in cells {
         let width = i32::try_from(cell.rect.width())

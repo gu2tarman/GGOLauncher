@@ -10,6 +10,10 @@ pub struct Profile {
     pub server: ServerConfig,
     #[serde(default)]
     pub client_version: Option<String>,
+    /// 보조 모니터에 적용할 멀티클라이언트 창 배치 프리셋.
+    /// 기존 설정에는 필드가 없으므로 2x2로 호환한다.
+    #[serde(default)]
+    pub secondary_layout_preset: SecondaryLayoutPreset,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +69,7 @@ pub enum SecondarySlot {
     R0c1,
     R1c0,
     R1c1,
+    Center,
 }
 
 impl SecondarySlot {
@@ -74,7 +79,32 @@ impl SecondarySlot {
             Self::R0c1 => "r0c1",
             Self::R1c0 => "r1c0",
             Self::R1c1 => "r1c1",
+            Self::Center => "center",
         }
+    }
+
+    pub fn order(self) -> u8 {
+        match self {
+            Self::R0c0 => 0,
+            Self::R0c1 => 1,
+            Self::R1c0 => 2,
+            Self::R1c1 => 3,
+            Self::Center => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SecondaryLayoutPreset {
+    #[default]
+    TwoByTwo,
+    TwoByTwoCenter,
+}
+
+impl SecondaryLayoutPreset {
+    pub fn allows(self, slot: SecondarySlot) -> bool {
+        self == Self::TwoByTwoCenter || slot != SecondarySlot::Center
     }
 }
 
@@ -125,5 +155,23 @@ mod tests {
         .unwrap();
 
         assert_eq!(account.secondary_slot, None);
+    }
+
+    #[test]
+    fn legacy_profile_without_layout_preset_defaults_to_two_by_two() {
+        let profile: Profile = serde_json::from_str(
+            r#"{
+                "id":"legacy",
+                "name":"legacy",
+                "uo_path":"",
+                "server":{"address":"localhost","port":2593}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            profile.secondary_layout_preset,
+            SecondaryLayoutPreset::TwoByTwo
+        );
     }
 }

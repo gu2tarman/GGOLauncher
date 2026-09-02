@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { api } from "./api";
 import type {
@@ -7,6 +7,7 @@ import type {
   EncryptionType,
   PathInfo,
   Profile,
+  SecondaryLayoutPreset,
 } from "./types";
 
 type Props = {
@@ -24,6 +25,29 @@ const ENCRYPTIONS: { value: EncryptionType; label: string }[] = [
   { value: "twofish", label: "Twofish" },
 ];
 
+type SecondarySlot = NonNullable<Account["secondary_slot"]>;
+type LayoutDropTarget = SecondarySlot | "unassigned";
+
+type LayoutPointerGesture = {
+  accountId: string;
+  pointerId: number;
+  sourceSlot: SecondarySlot | null;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
+
+const BASE_LAYOUT_SLOTS: SecondarySlot[] = ["r0c0", "r0c1", "r1c0", "r1c1"];
+const CENTER_LAYOUT_SLOTS: SecondarySlot[] = [...BASE_LAYOUT_SLOTS, "center"];
+
+const SLOT_LABELS: Record<SecondarySlot, string> = {
+  r0c0: "왼쪽 위",
+  r0c1: "오른쪽 위",
+  r1c0: "왼쪽 아래",
+  r1c1: "오른쪽 아래",
+  center: "중앙",
+};
+
 export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   // 로컬 폼 state — 모달 열릴 때마다 prop으로 초기화. Save 시에만 부모에 반영.
   const [draft, setDraft] = useState<Profile | null>(profile);
@@ -36,6 +60,9 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [multiWarning, setMultiWarning] = useState<string | null>(null);
   const [cuoProfileCandidates, setCuoProfileCandidates] = useState<CuoProfileCandidate[]>([]);
+  const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<LayoutDropTarget | null>(null);
+  const layoutPointerGesture = useRef<LayoutPointerGesture | null>(null);
 
   // multiWarning 3초 자동 닫힘
   useEffect(() => {
@@ -48,6 +75,9 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
     if (!profile) {
       setDraft(null);
       setShowPw({});
+      setDraggedAccountId(null);
+      setDragOverTarget(null);
+      layoutPointerGesture.current = null;
       return;
     }
     // 비밀번호 복호화 — draft에는 평문 보관. 저장 시 다시 암호화.
@@ -64,6 +94,9 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       if (cancelled) return;
       setDraft({ ...profile, server: { ...profile.server, accounts } });
       setShowPw({});
+      setDraggedAccountId(null);
+      setDragOverTarget(null);
+      layoutPointerGesture.current = null;
     })();
     return () => {
       cancelled = true;
@@ -217,13 +250,22 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
         return d;
       }
       setMultiWarning(null);
+      let accounts = d.server.accounts.map((a) =>
+        a.id === id
+          ? { ...a, multi_enabled: want, secondary_slot: want ? a.secondary_slot : null }
+          : a
+      );
+      const nextLeader = accounts.find((a, index) => isMultiEnabled(a, index));
+      if (nextLeader?.secondary_slot != null) {
+        accounts = accounts.map((a) =>
+          a.id === nextLeader.id ? { ...a, secondary_slot: null } : a
+        );
+      }
       return {
         ...d,
         server: {
           ...d.server,
-          accounts: d.server.accounts.map((a) =>
-            a.id === id ? { ...a, multi_enabled: want } : a
-          ),
+          accounts,
         },
       };
     });
@@ -264,13 +306,161 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
     return matched?.characters ?? [];
   };
 
+  const layoutPreset: SecondaryLayoutPreset =
+    draft.secondary_layout_preset ?? "two_by_two";
+  const layoutSlots =
+    layoutPreset === "two_by_two_center" ? CENTER_LAYOUT_SLOTS : BASE_LAYOUT_SLOTS;
+  const selectedForMulti = draft.server.accounts
+    .filter((a, i) => isMultiEnabled(a, i))
+    .slice(0, 6);
+  const leaderAccountId = selectedForMulti[0]?.id ?? null;
+  const secondaryAccounts = selectedForMulti.filter((a) => a.id !== leaderAccountId);
+  const unassignedSecondaryAccounts = secondaryAccounts.filter(
+    (account) => account.secondary_slot == null || !layoutSlots.includes(account.secondary_slot)
+  );
+
+  const accountLabel = (account: Account) =>
+    account.character_name?.trim() ||
+    account.display_name?.trim() ||
+    account.username.trim() ||
+    "이름 없는 계정";
+
+  const setLayoutPreset = (preset: SecondaryLayoutPreset) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const accounts = d.server.accounts.map((account) =>
+        preset === "two_by_two" && account.secondary_slot === "center"
+          ? { ...account, secondary_slot: null }
+          : account
+      );
+      return {
+        ...d,
+        secondary_layout_preset: preset,
+        server: { ...d.server, accounts },
+      };
+    });
+  };
+
+  const moveAccountToSlot = (accountId: string, slot: SecondarySlot | null) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const selected = d.server.accounts
+        .filter((account, index) => isMultiEnabled(account, index))
+        .slice(0, 6);
+      const leaderId = selected[0]?.id;
+      if (accountId === leaderId || !selected.some((account) => account.id === accountId))
+        return d;
+
+      const validSlots =
+        d.secondary_layout_preset === "two_by_two_center"
+          ? CENTER_LAYOUT_SLOTS
+          : BASE_LAYOUT_SLOTS;
+      if (slot != null && !validSlots.includes(slot)) return d;
+
+      const moving = d.server.accounts.find((account) => account.id === accountId);
+      if (!moving) return d;
+      const previousSlot =
+        moving.secondary_slot != null && validSlots.includes(moving.secondary_slot)
+          ? moving.secondary_slot
+          : null;
+      const displaced =
+        slot == null
+          ? null
+          : selected.find(
+              (account) => account.id !== accountId && account.secondary_slot === slot
+            );
+
+      const accounts = d.server.accounts.map((account) => {
+        if (account.id === accountId) return { ...account, secondary_slot: slot };
+        if (displaced && account.id === displaced.id)
+          return { ...account, secondary_slot: previousSlot };
+        return account;
+      });
+      return { ...d, server: { ...d.server, accounts } };
+    });
+  };
+
+  const layoutDropTargetAt = (clientX: number, clientY: number) => {
+    const element = document
+      .elementFromPoint(clientX, clientY)
+      ?.closest<HTMLElement>("[data-layout-drop]");
+    const value = element?.dataset.layoutDrop;
+    if (value === "unassigned") return value;
+    if (value && layoutSlots.includes(value as SecondarySlot)) return value as SecondarySlot;
+    return null;
+  };
+
+  const clearAccountPointerDrag = () => {
+    layoutPointerGesture.current = null;
+    setDraggedAccountId(null);
+    setDragOverTarget(null);
+  };
+
+  const beginAccountPointerDrag = (
+    event: PointerEvent<HTMLButtonElement>,
+    accountId: string,
+    sourceSlot: SecondarySlot | null
+  ) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    layoutPointerGesture.current = {
+      accountId,
+      pointerId: event.pointerId,
+      sourceSlot,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    setDraggedAccountId(accountId);
+    setDragOverTarget(null);
+  };
+
+  const updateAccountPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const gesture = layoutPointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (
+      !gesture.moved &&
+      Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < 5
+    )
+      return;
+
+    gesture.moved = true;
+    event.preventDefault();
+    setDragOverTarget(layoutDropTargetAt(event.clientX, event.clientY));
+  };
+
+  const finishAccountPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const gesture = layoutPointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const target = gesture.moved
+      ? layoutDropTargetAt(event.clientX, event.clientY)
+      : null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    clearAccountPointerDrag();
+
+    if (gesture.moved && target != null) {
+      moveAccountToSlot(gesture.accountId, target === "unassigned" ? null : target);
+    } else if (!gesture.moved && gesture.sourceSlot != null) {
+      moveAccountToSlot(gesture.accountId, null);
+    }
+  };
+
+  const cancelAccountPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const gesture = layoutPointerGesture.current;
+    if (gesture?.pointerId !== event.pointerId) return;
+    clearAccountPointerDrag();
+  };
+
   const onSaveClick = async () => {
     if (!canSave || !draft) return;
     setSaveError(null);
-    const selectedForMulti = draft.server.accounts
+    const selectedForSave = draft.server.accounts
       .filter((a, i) => isMultiEnabled(a, i))
       .slice(0, 6);
-    const assignedSlots = selectedForMulti
+    const saveLeaderId = selectedForSave[0]?.id ?? null;
+    const assignedSlots = selectedForSave
+      .filter((account) => account.id !== saveLeaderId)
       .map((a) => a.secondary_slot)
       .filter((slot): slot is NonNullable<Account["secondary_slot"]> => slot != null);
     const duplicateSlot = assignedSlots.find(
@@ -292,6 +482,8 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           return {
             ...a,
             multi_enabled,
+            secondary_slot:
+              multi_enabled && a.id !== saveLeaderId ? a.secondary_slot : null,
             character_name: a.character_name?.trim() || null,
             password_encrypted: a.password_encrypted
               ? await api.encryptPassword(a.password_encrypted)
@@ -568,23 +760,6 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
                     <option key={character} value={character} />
                   ))}
                 </datalist>
-                <select
-                  className="text-input account-slot"
-                  value={acc.secondary_slot ?? ""}
-                  onChange={(e) =>
-                    updateAccount(acc.id, {
-                      secondary_slot:
-                        (e.target.value as Account["secondary_slot"]) || null,
-                    })
-                  }
-                  title="MULTI LOGIN에서만 적용됩니다. 미지정 계정의 창은 런처가 이동하거나 크기를 바꾸지 않습니다."
-                >
-                  <option value="">창 자동 배치 안 함</option>
-                  <option value="r0c0">세컨 2×2 · 왼쪽 위</option>
-                  <option value="r0c1">세컨 2×2 · 오른쪽 위</option>
-                  <option value="r1c0">세컨 2×2 · 왼쪽 아래</option>
-                  <option value="r1c1">세컨 2×2 · 오른쪽 아래</option>
-                </select>
               </div>
               <button
                 type="button"
@@ -599,6 +774,118 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           );
         })}
       </section>
+
+      {draft.server.accounts.length > 0 && (
+        <section className="form-section layout-editor-section">
+          <header className="form-section-title layout-editor-header">
+            <span>
+              보조 모니터 창 배치
+              <span className="form-hint">계정을 원하는 위치로 드래그</span>
+            </span>
+            <select
+              className="text-input layout-preset-select"
+              value={layoutPreset}
+              onChange={(event) =>
+                setLayoutPreset(event.target.value as SecondaryLayoutPreset)
+              }
+            >
+              <option value="two_by_two">2×2 · 보조창 4개</option>
+              <option value="two_by_two_center">2×2 + 중앙 · 보조창 5개</option>
+            </select>
+          </header>
+
+          {selectedForMulti[0] && (
+            <div className="layout-leader-row">
+              <span className="layout-leader-badge">리더 · 자동 배치 제외</span>
+              <span>{accountLabel(selectedForMulti[0])}</span>
+            </div>
+          )}
+
+          <div
+            className={`layout-preview ${
+              layoutPreset === "two_by_two_center" ? "has-center" : ""
+            }`}
+          >
+            {layoutSlots.map((slot) => {
+              const occupant = secondaryAccounts.find(
+                (account) => account.secondary_slot === slot
+              );
+              return (
+                <div
+                  key={slot}
+                  className={`layout-slot layout-slot-${slot} ${
+                    occupant ? "is-occupied" : ""
+                  } ${dragOverTarget === slot ? "is-drop-target" : ""}`}
+                  data-layout-drop={slot}
+                >
+                  <span className="layout-slot-label">{SLOT_LABELS[slot]}</span>
+                  {occupant ? (
+                    <button
+                      type="button"
+                      className={`layout-account-chip ${
+                        draggedAccountId === occupant.id ? "is-dragging" : ""
+                      }`}
+                      onPointerDown={(event) =>
+                        beginAccountPointerDrag(event, occupant.id, slot)
+                      }
+                      onPointerMove={updateAccountPointerDrag}
+                      onPointerUp={finishAccountPointerDrag}
+                      onPointerCancel={cancelAccountPointerDrag}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          moveAccountToSlot(occupant.id, null);
+                        }
+                      }}
+                      title="다른 슬롯으로 드래그하거나 클릭하여 자동 배치에서 제외"
+                    >
+                      {accountLabel(occupant)}
+                    </button>
+                  ) : (
+                    <span className="layout-slot-empty">여기에 놓기</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div
+            className={`layout-unassigned ${
+              dragOverTarget === "unassigned" ? "is-drop-target" : ""
+            }`}
+            data-layout-drop="unassigned"
+          >
+            <span className="layout-unassigned-label">자동 배치하지 않음</span>
+            <div className="layout-unassigned-list">
+              {unassignedSecondaryAccounts.length > 0 ? (
+                unassignedSecondaryAccounts.map((account) => (
+                  <button
+                    type="button"
+                    key={account.id}
+                    className={`layout-account-chip ${
+                      draggedAccountId === account.id ? "is-dragging" : ""
+                    }`}
+                    onPointerDown={(event) =>
+                      beginAccountPointerDrag(event, account.id, null)
+                    }
+                    onPointerMove={updateAccountPointerDrag}
+                    onPointerUp={finishAccountPointerDrag}
+                    onPointerCancel={cancelAccountPointerDrag}
+                    title="위 배치 슬롯으로 드래그"
+                  >
+                    {accountLabel(account)}
+                  </button>
+                ))
+              ) : (
+                <span className="layout-unassigned-empty">미배정 보조 계정 없음</span>
+              )}
+            </div>
+          </div>
+          <p className="layout-apply-note">
+            저장 후 새로 실행하거나 개별 복구하는 보조 클라이언트부터 적용됩니다.
+          </p>
+        </section>
+      )}
     </Modal>
   );
 }

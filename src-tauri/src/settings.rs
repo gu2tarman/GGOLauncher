@@ -139,7 +139,7 @@ pub fn save(s: &Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile::{EncryptionType, Profile, ServerConfig};
+    use crate::profile::{EncryptionType, Profile, SecondaryLayoutPreset, ServerConfig};
 
     fn profile(id: &str) -> Profile {
         Profile {
@@ -157,6 +157,7 @@ mod tests {
                 password_encrypted: String::new(),
             },
             client_version: None,
+            secondary_layout_preset: SecondaryLayoutPreset::TwoByTwo,
         }
     }
 
