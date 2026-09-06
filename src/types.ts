@@ -113,16 +113,6 @@ export interface Sidebar {
   background_url?: string | null;
 }
 
-// ── Server Status (마고 서버 가용성) ────────────────────
-export interface ServerEndpoint {
-  host: string;
-  port: number;
-  label?: string;
-}
-
-export type ServerStatus =
-  | { state: "online"; latency_ms: number }
-  | { state: "offline"; reason: string };
 
 // ── Stage 0 Multi-client Diagnostics ──────────────────
 export interface MultiSessionStatus {

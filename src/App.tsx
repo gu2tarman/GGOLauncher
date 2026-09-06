@@ -8,7 +8,6 @@ import { EditProfileModal } from "./EditProfileModal";
 import { Modal } from "./Modal";
 import { OnboardingBanner } from "./OnboardingBanner";
 import { PluginPanel } from "./PluginPanel";
-import { ServerStatusBadge } from "./ServerStatusBadge";
 import { Stage0DiagnosticsPanel } from "./Stage0DiagnosticsPanel";
 import type {
   GroupControlAction,
@@ -800,7 +799,6 @@ function App() {
           <img src="/margo-logo.png" alt="Margo Launcher" className="logo" />
         </div>
 
-        <ServerStatusBadge />
 
         {sidebar.groups.map((g, groupIndex) => (
           <div key={g.label} className="btn-group">

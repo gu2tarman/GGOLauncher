@@ -176,47 +176,6 @@ button:focus-visible,
   z-index: 2;
 }
 
-/* ── 서버 상태 배지 ─────────────────────────────────────── */
-.server-status-badge {
-  width: 100%;
-  margin-bottom: 18px;
-  background: rgba(16, 23, 45, 0.35);   /* 경량화 실험 */
-  border: 1px solid var(--chip-border);
-  border-radius: 999px;
-  padding: 6px 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.server-status-badge[data-state="online"]  { border-color: rgba(90, 209, 126, 0.45); }
-.server-status-badge[data-state="offline"] { border-color: rgba(226, 106, 106, 0.45); }
-
-.status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--text-mute);
-  flex-shrink: 0;
-  transition: background 0.2s, box-shadow 0.2s;
-}
-
-[data-state="online"] .status-dot  { background: #5ad17e; box-shadow: 0 0 6px rgba(90, 209, 126, 0.7); }
-[data-state="offline"] .status-dot { background: #e26a6a; }
-
-.status-label { font-weight: 600; }
-.status-state { font-weight: 700; color: var(--text-dim); }
-[data-state="online"] .status-state  { color: #5ad17e; }
-[data-state="offline"] .status-state { color: #e26a6a; }
-
-.status-ms {
-  margin-left: auto;
-  opacity: 0.8;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11px;
-}
-
 /* ── 사이드 버튼 그룹 ───────────────────────────────────── */
 .btn-group {
   display: flex;
