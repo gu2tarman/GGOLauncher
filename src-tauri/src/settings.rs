@@ -158,6 +158,7 @@ mod tests {
             },
             client_version: None,
             secondary_layout_preset: SecondaryLayoutPreset::TwoByTwo,
+            multiclient_leader_account_id: None,
         }
     }
 

@@ -93,6 +93,7 @@ pub struct SessionRegistry {
     untracked_active_accounts: HashSet<AccountKey>,
     recent_exits: VecDeque<RecentExitDiagnostic>,
     untracked_launches: VecDeque<UntrackedLaunchDiagnostic>,
+    profile_leaders: HashMap<String, String>,
 }
 
 impl Default for SessionRegistry {
@@ -105,11 +106,42 @@ impl Default for SessionRegistry {
             untracked_active_accounts: HashSet::new(),
             recent_exits: VecDeque::with_capacity(RECENT_EXIT_CAPACITY),
             untracked_launches: VecDeque::with_capacity(RECENT_UNTRACKED_CAPACITY),
+            profile_leaders: HashMap::new(),
         }
     }
 }
 
 impl SessionRegistry {
+    pub fn reserve_group_accounts(
+        &mut self,
+        profile_id: &str,
+        account_ids: &[String],
+        configured_leader: &str,
+    ) -> Result<(Vec<String>, String), String> {
+        let _ = self.reap_exited();
+        let running = self.active.values().any(|s| s.profile_id == profile_id)
+            || self
+                .pending_accounts
+                .iter()
+                .any(|k| k.profile_id == profile_id)
+            || self
+                .untracked_active_accounts
+                .iter()
+                .any(|k| k.profile_id == profile_id);
+        if !running {
+            self.profile_leaders.remove(profile_id);
+        }
+        let leader = self
+            .profile_leaders
+            .get(profile_id)
+            .cloned()
+            .unwrap_or_else(|| configured_leader.to_string());
+        let reserved = self.reserve_missing_accounts(profile_id, account_ids)?;
+        self.profile_leaders
+            .insert(profile_id.to_string(), leader.clone());
+        Ok((reserved, leader))
+    }
+
     pub fn reserve_missing_accounts(
         &mut self,
         profile_id: &str,
@@ -125,7 +157,9 @@ impl SessionRegistry {
                     "duplicate account id in MULTI LOGIN selection: {account_id}"
                 ));
             }
+        }
 
+        for account_id in account_ids {
             let key = AccountKey {
                 profile_id: profile_id.to_string(),
                 account_id: account_id.clone(),
@@ -496,6 +530,75 @@ mod tests {
                 ..AccountStateCounts::default()
             }
         );
+    }
+
+    #[test]
+    fn leader_is_pinned_during_partial_recovery_and_changes_after_full_exit() {
+        let mut registry = SessionRegistry::default();
+        let accounts = vec!["first".to_string(), "chosen".to_string()];
+        let (_, leader) = registry
+            .reserve_group_accounts("p", &accounts, "chosen")
+            .unwrap();
+        assert_eq!(leader, "chosen");
+        registry
+            .register("p", "first", spawn_sleeper(), unix_time_ms())
+            .unwrap();
+        // The leader failed to launch or exited; a follower still belongs to the group.
+        registry.release_reservation("p", "chosen");
+        let (missing, leader) = registry
+            .reserve_group_accounts("p", &accounts, "first")
+            .unwrap();
+        assert_eq!(missing, vec!["chosen".to_string()]);
+        assert_eq!(leader, "chosen");
+        registry.kill_all_for_test();
+        let (missing, leader) = registry
+            .reserve_group_accounts("p", &accounts, "first")
+            .unwrap();
+        assert_eq!(missing, accounts);
+        assert_eq!(leader, "first");
+    }
+
+    #[test]
+    fn pending_launch_pins_leader_but_failed_launches_and_other_profiles_do_not() {
+        let mut registry = SessionRegistry::default();
+        let accounts = vec!["a".to_string(), "b".to_string()];
+        registry
+            .reserve_group_accounts("p", &accounts, "b")
+            .unwrap();
+        assert_eq!(
+            registry
+                .reserve_group_accounts("p", &accounts, "a")
+                .unwrap()
+                .1,
+            "b"
+        );
+        assert_eq!(
+            registry
+                .reserve_group_accounts("other", &accounts, "a")
+                .unwrap()
+                .1,
+            "a"
+        );
+        for account in &accounts {
+            registry.release_reservation("p", account);
+        }
+        assert_eq!(
+            registry
+                .reserve_group_accounts("p", &accounts, "a")
+                .unwrap()
+                .1,
+            "a"
+        );
+    }
+
+    #[test]
+    fn invalid_selection_does_not_leave_partial_reservations() {
+        let mut registry = SessionRegistry::default();
+        assert!(registry
+            .reserve_group_accounts("p", &["a".into(), "a".into()], "a")
+            .is_err());
+        assert!(registry.pending_accounts.is_empty());
+        assert!(registry.profile_leaders.is_empty());
     }
 
     #[test]

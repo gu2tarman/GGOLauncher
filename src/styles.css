@@ -715,6 +715,16 @@ button:focus-visible,
 .layout-leader-badge {
   color: #7ee8da;
   font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.layout-leader-row > select.text-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  padding: 5px 30px 5px 9px;
+  font-size: 12px;
 }
 
 .layout-preview {

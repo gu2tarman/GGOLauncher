@@ -46,6 +46,7 @@ export interface Profile {
   server: ServerConfig;
   client_version: string | null;
   secondary_layout_preset: SecondaryLayoutPreset;
+  multiclient_leader_account_id?: string | null;
 }
 
 export interface PluginEntry {

@@ -45,6 +45,23 @@ struct GroupControlWork {
     action: GroupControlAction,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ConnectionIdentity {
+    id: u64,
+    handle: usize,
+}
+
+fn require_connection(session: &ExpectedSession, caller: ConnectionIdentity) -> Result<(), String> {
+    if session.connected
+        && session.connection_id == Some(caller.id)
+        && session.pipe_handle == Some(caller.handle)
+    {
+        Ok(())
+    } else {
+        Err("message belongs to a stale broker connection".to_string())
+    }
+}
+
 #[derive(Debug)]
 struct GroupControlTarget {
     launch_session_id: String,
@@ -164,6 +181,33 @@ pub struct BrokerServer {
 }
 
 impl BrokerServer {
+    pub fn live_secondary_accounts(
+        &self,
+        profile_id: &str,
+    ) -> Result<Vec<(String, &'static str)>, String> {
+        let sessions = self
+            .shared
+            .sessions
+            .lock()
+            .map_err(|_| "broker session lock is poisoned".to_string())?;
+        Ok(collect_profile_managed_group_targets(&sessions, profile_id)
+            .into_iter()
+            .map(|target| {
+                (
+                    target.account_id,
+                    match target.order {
+                        0 => "r0c0",
+                        1 => "r0c1",
+                        2 => "r1c0",
+                        3 => "r1c1",
+                        4 => "center",
+                        _ => "managed",
+                    },
+                )
+            })
+            .collect())
+    }
+
     pub fn start() -> Self {
         let broker_nonce = random_hex(16).unwrap_or_else(|_| {
             format!(
@@ -633,7 +677,7 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
     }
 
     let mut reader = PipeLineReader::new(handle_value);
-    let launch_session_id = (|| -> Result<String, String> {
+    let launch_session_id = (|| -> Result<(String, ConnectionIdentity), String> {
         let hello = reader.read_json_line()?;
         let mut sessions = shared
             .sessions
@@ -675,10 +719,17 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
         });
         drop(sessions);
         write_json_line(handle_value, &welcome)?;
-        Ok(launch_session_id)
+        Ok((
+            launch_session_id,
+            ConnectionIdentity {
+                id: connection_id,
+                handle: handle_value,
+            },
+        ))
     })();
 
-    if let Ok(launch_session_id) = &launch_session_id {
+    if let Ok((launch_session_id, caller)) = &launch_session_id {
+        let caller = *caller;
         let mut last_party_status_write = Instant::now() - PARTY_STATUS_WRITE_INTERVAL;
         loop {
             // The connection thread is the sole writer for this synchronous
@@ -687,11 +738,11 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
             if let Err(error) =
                 write_pending_group_control_result(&shared, launch_session_id, handle_value)
             {
-                set_session_error(&shared, launch_session_id, error);
+                set_session_error(&shared, launch_session_id, caller, error);
                 break;
             }
             if let Err(error) = write_pending_command(&shared, launch_session_id, handle_value) {
-                set_session_error(&shared, launch_session_id, error);
+                set_session_error(&shared, launch_session_id, caller, error);
                 break;
             }
             if let Err(error) = write_party_status_if_due(
@@ -700,21 +751,25 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                 handle_value,
                 &mut last_party_status_write,
             ) {
-                set_session_error(&shared, launch_session_id, error);
+                set_session_error(&shared, launch_session_id, caller, error);
                 break;
             }
 
             match reader.try_read_json_line() {
                 Ok(Some(message)) => {
                     let result = match message.get("type").and_then(Value::as_str) {
-                        Some("window_ready") => {
-                            record_window_ready(&shared, launch_session_id, client_pid, &message)
-                        }
+                        Some("window_ready") => record_window_ready(
+                            &shared,
+                            launch_session_id,
+                            caller,
+                            client_pid,
+                            &message,
+                        ),
                         Some("client_status") => {
-                            record_client_status(&shared, launch_session_id, &message)
+                            record_client_status(&shared, launch_session_id, caller, &message)
                         }
                         Some("group_control_request") => {
-                            queue_group_control(&shared, launch_session_id, &message)
+                            queue_group_control(&shared, launch_session_id, caller, &message)
                         }
                         Some("ping") => {
                             write_json_line(handle_value, &json!({ "type": "pong", "payload": {} }))
@@ -726,7 +781,7 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                             "[ggo-broker] rejected message session={} pid={}: {}",
                             launch_session_id, client_pid, error
                         );
-                        set_session_error(&shared, launch_session_id, error);
+                        set_session_error(&shared, launch_session_id, caller, error);
                         break;
                     }
                 }
@@ -736,7 +791,7 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
         }
         if let Ok(mut sessions) = shared.sessions.lock() {
             if let Some(session) = sessions.get_mut(launch_session_id) {
-                if session.pipe_handle == Some(handle_value) {
+                if require_connection(session, caller).is_ok() {
                     session.connected = false;
                     session.window_ready = false;
                     session.managed_tile_active = false;
@@ -759,6 +814,7 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
 fn record_window_ready(
     shared: &Arc<BrokerShared>,
     launch_session_id: &str,
+    caller: ConnectionIdentity,
     client_pid: u32,
     message: &Value,
 ) -> Result<(), String> {
@@ -794,6 +850,12 @@ fn record_window_ready(
     let session = sessions
         .get_mut(launch_session_id)
         .ok_or_else(|| "launch session disappeared".to_string())?;
+    require_connection(session, caller)?;
+    if let Some(previous) = session.hwnd_generation {
+        if generation < previous || (generation == previous && session.hwnd != Some(hwnd_value)) {
+            return Err("window_ready HWND generation regressed".to_string());
+        }
+    }
     session.hwnd = Some(hwnd_value);
     session.hwnd_generation = Some(generation);
     session.window_ready = true;
@@ -885,6 +947,7 @@ fn parse_client_status(message: &Value) -> Result<Option<BrokerClientStatus>, St
 fn record_client_status(
     shared: &Arc<BrokerShared>,
     launch_session_id: &str,
+    caller: ConnectionIdentity,
     message: &Value,
 ) -> Result<(), String> {
     let status = parse_client_status(message)?;
@@ -895,6 +958,7 @@ fn record_client_status(
     let session = sessions
         .get_mut(launch_session_id)
         .ok_or_else(|| "launch session disappeared".to_string())?;
+    require_connection(session, caller)?;
     session.latest_status = status;
     session.last_status_received_at = Some(Instant::now());
     session.last_error = None;
@@ -951,12 +1015,21 @@ fn collect_managed_group_targets(
         return Err("only the authenticated HUD leader can control the group".to_string());
     }
 
+    Ok(collect_profile_managed_group_targets(
+        sessions,
+        &leader.profile_id,
+    ))
+}
+
+fn collect_profile_managed_group_targets(
+    sessions: &HashMap<String, ExpectedSession>,
+    profile_id: &str,
+) -> Vec<GroupControlTarget> {
     let mut targets = sessions
         .iter()
-        .filter(|(session_id, session)| {
-            *session_id != leader_session_id
-                && !session.hud_leader
-                && session.profile_id == leader.profile_id
+        .filter(|(_, session)| {
+            !session.hud_leader
+                && session.profile_id == profile_id
                 && session.connected
                 && session.window_ready
                 && session.managed_tile_active
@@ -989,12 +1062,13 @@ fn collect_managed_group_targets(
             .cmp(&right.order)
             .then_with(|| left.account_id.cmp(&right.account_id))
     });
-    Ok(targets)
+    targets
 }
 
 fn queue_group_control(
     shared: &Arc<BrokerShared>,
     launch_session_id: &str,
+    caller: ConnectionIdentity,
     message: &Value,
 ) -> Result<(), String> {
     let work = {
@@ -1002,6 +1076,12 @@ fn queue_group_control(
             .sessions
             .lock()
             .map_err(|_| "broker session lock is poisoned".to_string())?;
+        require_connection(
+            sessions
+                .get(launch_session_id)
+                .ok_or_else(|| "launch session disappeared".to_string())?,
+            caller,
+        )?;
         begin_group_control(&mut sessions, launch_session_id, message)?
     };
     let worker_shared = Arc::clone(shared);
@@ -1223,10 +1303,17 @@ fn write_party_status_if_due(
     Ok(true)
 }
 
-fn set_session_error(shared: &Arc<BrokerShared>, launch_session_id: &str, error: String) {
+fn set_session_error(
+    shared: &Arc<BrokerShared>,
+    launch_session_id: &str,
+    caller: ConnectionIdentity,
+    error: String,
+) {
     if let Ok(mut sessions) = shared.sessions.lock() {
         if let Some(session) = sessions.get_mut(launch_session_id) {
-            session.last_error = Some(error);
+            if require_connection(session, caller).is_ok() {
+                session.last_error = Some(error);
+            }
         }
     }
 }
@@ -1566,6 +1653,43 @@ mod tests {
     }
 
     #[test]
+    fn replaced_connection_cannot_update_status_or_issue_commands_even_with_reused_handle() {
+        let current = ConnectionIdentity { id: 8, handle: 123 };
+        let old = ConnectionIdentity { id: 7, handle: 123 };
+        let mut expected = sessions();
+        let session = expected.get_mut("session-a").unwrap();
+        session.connected = true;
+        session.connection_id = Some(current.id);
+        session.pipe_handle = Some(current.handle);
+        let shared = Arc::new(BrokerShared {
+            broker_instance_id: "test".to_string(),
+            sessions: Mutex::new(expected),
+            next_connection_id: AtomicU64::new(9),
+        });
+        record_client_status(&shared, "session-a", current, &client_status_message(true)).unwrap();
+        assert!(
+            record_client_status(&shared, "session-a", old, &client_status_message(false)).is_err()
+        );
+        assert!(queue_group_control(
+            &shared,
+            "session-a",
+            old,
+            &group_control_message("close_secondary")
+        )
+        .is_err());
+        set_session_error(&shared, "session-a", old, "old error".to_string());
+        let expected = shared.sessions.lock().unwrap();
+        assert!(expected["session-a"].latest_status.is_some());
+        assert!(!expected["session-a"].group_control_in_flight);
+        assert!(expected["session-a"].last_error.is_none());
+        assert!(require_connection(
+            &expected["session-a"],
+            ConnectionIdentity { id: 8, handle: 999 }
+        )
+        .is_err());
+    }
+
+    #[test]
     fn client_status_uses_ingame_payload_and_out_of_game_clears_it() {
         let status = parse_client_status(&client_status_message(true))
             .unwrap()
@@ -1712,6 +1836,14 @@ mod tests {
         assert!(targets[0].target.is_err());
         assert_eq!(targets[1].account_id, "managed");
         assert!(targets[1].target.is_ok());
+        let launcher_targets = collect_profile_managed_group_targets(&expected, "profile-a");
+        assert_eq!(
+            launcher_targets
+                .iter()
+                .map(|t| &t.account_id)
+                .collect::<Vec<_>>(),
+            targets.iter().map(|t| &t.account_id).collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -255,7 +255,8 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           ? { ...a, multi_enabled: want, secondary_slot: want ? a.secondary_slot : null }
           : a
       );
-      const nextLeader = accounts.find((a, index) => isMultiEnabled(a, index));
+      const candidates = accounts.filter((a, index) => isMultiEnabled(a, index)).slice(0, 6);
+      const nextLeader = candidates.find(a => a.id === d.multiclient_leader_account_id) ?? candidates[0];
       if (nextLeader?.secondary_slot != null) {
         accounts = accounts.map((a) =>
           a.id === nextLeader.id ? { ...a, secondary_slot: null } : a
@@ -263,6 +264,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       }
       return {
         ...d,
+        multiclient_leader_account_id: nextLeader?.id ?? null,
         server: {
           ...d.server,
           accounts,
@@ -281,6 +283,10 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           : d.server.active_account_id;
       return {
         ...d,
+        multiclient_leader_account_id:
+          d.multiclient_leader_account_id === id
+            ? accounts.find((a, index) => isMultiEnabled(a, index))?.id ?? null
+            : d.multiclient_leader_account_id,
         server: { ...d.server, accounts, active_account_id: active },
       };
     });
@@ -313,7 +319,8 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const selectedForMulti = draft.server.accounts
     .filter((a, i) => isMultiEnabled(a, i))
     .slice(0, 6);
-  const leaderAccountId = selectedForMulti[0]?.id ?? null;
+  const leaderAccountId = selectedForMulti.find(a => a.id === draft.multiclient_leader_account_id)?.id
+    ?? selectedForMulti[0]?.id ?? null;
   const secondaryAccounts = selectedForMulti.filter((a) => a.id !== leaderAccountId);
   const unassignedSecondaryAccounts = secondaryAccounts.filter(
     (account) => account.secondary_slot == null || !layoutSlots.includes(account.secondary_slot)
@@ -347,7 +354,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       const selected = d.server.accounts
         .filter((account, index) => isMultiEnabled(account, index))
         .slice(0, 6);
-      const leaderId = selected[0]?.id;
+      const leaderId = selected.find(a => a.id === d.multiclient_leader_account_id)?.id ?? selected[0]?.id;
       if (accountId === leaderId || !selected.some((account) => account.id === accountId))
         return d;
 
@@ -458,7 +465,8 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
     const selectedForSave = draft.server.accounts
       .filter((a, i) => isMultiEnabled(a, i))
       .slice(0, 6);
-    const saveLeaderId = selectedForSave[0]?.id ?? null;
+    const saveLeaderId = selectedForSave.find(a => a.id === draft.multiclient_leader_account_id)?.id
+      ?? selectedForSave[0]?.id ?? null;
     const assignedSlots = selectedForSave
       .filter((account) => account.id !== saveLeaderId)
       .map((a) => a.secondary_slot)
@@ -493,6 +501,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       );
       const encrypted: Profile = {
         ...draft,
+        multiclient_leader_account_id: saveLeaderId,
         server: { ...draft.server, accounts },
       };
       onSave(encrypted);
@@ -797,7 +806,24 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           {selectedForMulti[0] && (
             <div className="layout-leader-row">
               <span className="layout-leader-badge">리더 · 자동 배치 제외</span>
-              <span>{accountLabel(selectedForMulti[0])}</span>
+              <select
+                className="text-input"
+                aria-label="멀티클라이언트 리더"
+                value={leaderAccountId ?? ""}
+                onChange={event => {
+                  const id = event.target.value;
+                  setDraft(d => d ? {
+                    ...d,
+                    multiclient_leader_account_id: id,
+                    server: { ...d.server, accounts: d.server.accounts.map(a =>
+                      a.id === id ? { ...a, secondary_slot: null } : a) }
+                  } : d);
+                }}
+              >
+                {selectedForMulti.map(account => (
+                  <option key={account.id} value={account.id}>{accountLabel(account)}</option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -883,6 +909,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           </div>
           <p className="layout-apply-note">
             저장 후 새로 실행하거나 개별 복구하는 보조 클라이언트부터 적용됩니다.
+            <br />리더 변경은 이 프로필의 클라이언트를 모두 종료한 뒤 새로 실행할 때 적용됩니다.
           </p>
         </section>
       )}

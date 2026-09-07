@@ -188,6 +188,13 @@ impl Stage0State {
         self.broker.window_target(profile_id, account_id)
     }
 
+    pub fn live_secondary_accounts(
+        &self,
+        profile_id: &str,
+    ) -> Result<Vec<(String, &'static str)>, String> {
+        self.broker.live_secondary_accounts(profile_id)
+    }
+
     pub fn disconnect_broker_session_for_test(
         &self,
         profile_id: &str,
@@ -216,15 +223,16 @@ impl Stage0State {
         }
     }
 
-    pub fn reserve_missing_accounts(
+    pub fn reserve_group_accounts(
         &self,
         profile_id: &str,
         account_ids: &[String],
-    ) -> Result<Vec<String>, String> {
+        configured_leader: &str,
+    ) -> Result<(Vec<String>, String), String> {
         self.registry
             .lock()
             .map_err(|_| "multiclient session registry lock is poisoned".to_string())?
-            .reserve_missing_accounts(profile_id, account_ids)
+            .reserve_group_accounts(profile_id, account_ids, configured_leader)
     }
 
     pub fn release_account_reservation(&self, profile_id: &str, account_id: &str) {

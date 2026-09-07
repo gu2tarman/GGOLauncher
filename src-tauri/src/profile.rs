@@ -14,6 +14,9 @@ pub struct Profile {
     /// 기존 설정에는 필드가 없으므로 2x2로 호환한다.
     #[serde(default)]
     pub secondary_layout_preset: SecondaryLayoutPreset,
+    /// Optional explicit HUD leader. Missing/invalid legacy values use the first MULTI account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiclient_leader_account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +175,15 @@ mod tests {
         assert_eq!(
             profile.secondary_layout_preset,
             SecondaryLayoutPreset::TwoByTwo
+        );
+        assert_eq!(profile.multiclient_leader_account_id, None);
+        let mut selected = profile;
+        selected.multiclient_leader_account_id = Some("second-account".to_string());
+        let restored: Profile =
+            serde_json::from_str(&serde_json::to_string(&selected).unwrap()).unwrap();
+        assert_eq!(
+            restored.multiclient_leader_account_id.as_deref(),
+            Some("second-account")
         );
     }
 }

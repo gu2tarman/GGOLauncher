@@ -979,13 +979,13 @@ function App() {
                 </span>
               )}
             </span>
-            {managedSecondaryCount > 0 && (
+            {(managedSecondaryCount > 0 || (multiStatus?.active_count ?? 0) > 0) && (
               <div
                 className="secondary-group-controls"
                 aria-label="보조 모니터 게임창 그룹 제어"
               >
                 <span className="secondary-group-label">
-                  보조 {managedSecondaryCount}
+                  보조창
                 </span>
                 <button
                   className="secondary-group-button"

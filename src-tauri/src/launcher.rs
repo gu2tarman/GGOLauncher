@@ -128,23 +128,9 @@ pub fn control_secondary_group(
     action: &str,
     stage0: &Stage0State,
 ) -> Result<GroupControlResult, String> {
-    let settings = settings::load()?;
-    let profile = settings
-        .profiles
-        .iter()
-        .find(|profile| profile.id == profile_id)
-        .ok_or_else(|| "프로필을 찾을 수 없습니다.".to_string())?;
-    let selected = selected_multi_accounts(profile);
-    let leader_account_id = selected.first().map(|account| account.id.clone());
-    let mut accounts = selected
-        .into_iter()
-        .filter(|account| {
-            account.secondary_slot.is_some() && Some(&account.id) != leader_account_id.as_ref()
-        })
-        .collect::<Vec<_>>();
-    accounts.sort_by_key(|account| account.secondary_slot.unwrap().order());
+    let accounts = stage0.live_secondary_accounts(profile_id)?;
     if accounts.is_empty() {
-        return Err("현재 MULTI 대상에 보조 모니터 슬롯이 지정된 계정이 없습니다.".to_string());
+        return Err("현재 연결된 보조 관리 창이 없습니다.".to_string());
     }
     if !matches!(
         action,
@@ -154,13 +140,12 @@ pub fn control_secondary_group(
     }
 
     let mut results = Vec::with_capacity(accounts.len());
-    for account in accounts {
-        let slot = account.secondary_slot.unwrap().as_str();
-        let target = match stage0.broker_window_target(profile_id, &account.id) {
+    for (account_id, slot) in accounts {
+        let target = match stage0.broker_window_target(profile_id, &account_id) {
             Ok(target) => target,
             Err(error) => {
                 results.push(GroupControlAccountResult {
-                    account_id: account.id.clone(),
+                    account_id: account_id.clone(),
                     slot,
                     status: "pending",
                     message: Some(error),
@@ -174,7 +159,7 @@ pub fn control_secondary_group(
             "minimize" => crate::multiclient::minimize_broker_window(target),
             "restore_preset" => {
                 crate::multiclient::restore_broker_window(target).and_then(|window| {
-                    stage0.request_apply_managed_tile(profile_id, &account.id)?;
+                    stage0.request_apply_managed_tile(profile_id, &account_id)?;
                     Ok(window)
                 })
             }
@@ -184,14 +169,14 @@ pub fn control_secondary_group(
         };
         match operation {
             Ok(window) => results.push(GroupControlAccountResult {
-                account_id: account.id.clone(),
+                account_id: account_id.clone(),
                 slot,
                 status: "success",
                 message: None,
                 window: Some(window),
             }),
             Err(error) => results.push(GroupControlAccountResult {
-                account_id: account.id.clone(),
+                account_id: account_id.clone(),
                 slot,
                 status: "failed",
                 message: Some(error),
@@ -248,14 +233,38 @@ pub async fn launch_multi(
         );
     }
 
-    // 모든 검증과 모니터 계산을 첫 spawn 전에 끝낸다. 중복 슬롯이나
-    // 세컨 모니터 부재로 일부 계정만 실행되는 상태를 만들지 않는다.
-    let managed_tile_plan = managed_tiles_for_accounts(&selected, profile.secondary_layout_preset)?;
     let account_ids = selected
         .iter()
         .map(|account| account.id.clone())
         .collect::<Vec<_>>();
-    let reserved_ids = stage0.reserve_missing_accounts(profile_id, &account_ids)?;
+    let configured_leader =
+        hud_leader_account_id(&selected, profile.multiclient_leader_account_id.as_deref())
+            .ok_or_else(|| "HUD 리더 계정을 결정할 수 없습니다.".to_string())?;
+    let (reserved_ids, hud_leader_account_id) =
+        stage0.reserve_group_accounts(profile_id, &account_ids, configured_leader)?;
+    // A running group keeps its original leader even after profile edits or
+    // leader process exit. It changes only once the entire group has stopped.
+    let selected_owned: Vec<Account> = selected
+        .iter()
+        .map(|a| {
+            let mut account = (*a).clone();
+            if account.id == hud_leader_account_id {
+                account.secondary_slot = None;
+            }
+            account
+        })
+        .collect();
+    let selected: Vec<&Account> = selected_owned.iter().collect();
+    let managed_tile_plan =
+        match managed_tiles_for_accounts(&selected, profile.secondary_layout_preset) {
+            Ok(plan) => plan,
+            Err(error) => {
+                for account_id in &reserved_ids {
+                    stage0.release_account_reservation(profile_id, account_id);
+                }
+                return Err(error);
+            }
+        };
     let reserved_set = reserved_ids
         .iter()
         .map(String::as_str)
@@ -274,12 +283,6 @@ pub async fn launch_multi(
     // visible on top immediately after a full MULTI start.
     launch_plan.sort_by_key(|(account, _)| account.secondary_slot == Some(SecondarySlot::Center));
     let already_running_count = selected.len().saturating_sub(launch_plan.len());
-    // Keep HUD identity independent from any current or future window preset.
-    // No new leader setting or automatic failover in the first completion:
-    // the first MULTI account is the stable leader, and every other connected
-    // MULTI account is eligible for the HUD regardless of window placement.
-    let hud_leader_account_id = hud_leader_account_id(&selected)
-        .ok_or_else(|| "HUD 리더 계정을 결정할 수 없습니다.".to_string())?;
 
     let mut launched_count = 0usize;
     for (i, (account, managed_tile)) in launch_plan.iter().enumerate() {
@@ -337,8 +340,15 @@ pub async fn launch_multi(
     })
 }
 
-fn hud_leader_account_id<'a>(selected: &[&'a Account]) -> Option<&'a str> {
-    selected.first().map(|account| account.id.as_str())
+fn hud_leader_account_id<'a>(
+    selected: &[&'a Account],
+    configured: Option<&str>,
+) -> Option<&'a str> {
+    selected
+        .iter()
+        .find(|account| Some(account.id.as_str()) == configured)
+        .or_else(|| selected.first())
+        .map(|account| account.id.as_str())
 }
 
 fn managed_tiles_for_accounts(
@@ -860,8 +870,22 @@ mod tests {
         let first = account("main", Some(SecondarySlot::R1c1));
         let second = account("bard", None);
 
-        assert_eq!(hud_leader_account_id(&[&first, &second]), Some("main"));
-        assert_eq!(hud_leader_account_id(&[&second, &first]), Some("bard"));
+        assert_eq!(
+            hud_leader_account_id(&[&first, &second], None),
+            Some("main")
+        );
+        assert_eq!(
+            hud_leader_account_id(&[&first, &second], Some("bard")),
+            Some("bard")
+        );
+        assert_eq!(
+            hud_leader_account_id(&[&first, &second], Some("deleted")),
+            Some("main")
+        );
+        assert_eq!(
+            hud_leader_account_id(&[&second, &first], None),
+            Some("bard")
+        );
     }
 
     #[test]

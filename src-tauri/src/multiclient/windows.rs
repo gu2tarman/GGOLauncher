@@ -118,7 +118,11 @@ fn window_inspection_status(
 
 #[cfg(windows)]
 fn inspect_broker_window(target: BrokerWindowTarget) -> Result<ProcessWindowInspection, String> {
-    let inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+    let inspection = inspect_process_windows_impl(
+        target.pid,
+        Some(target.process_creation_time),
+        Some(target.hwnd_value),
+    );
     if !inspection.management_eligible {
         return Err(format!(
             "PID {} broker window is not safe to control: {}",
@@ -162,7 +166,7 @@ pub fn minimize_broker_window(
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_MINIMIZE};
     inspect_broker_window(target)?;
     unsafe { ShowWindowAsync(target.hwnd_value as HWND, SW_MINIMIZE) };
-    let mut inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+    let mut inspection = inspect_broker_window(target)?;
     for _ in 0..20 {
         if selected_candidate(&inspection).and_then(|candidate| candidate.is_minimized)
             == Some(true)
@@ -170,7 +174,7 @@ pub fn minimize_broker_window(
             break;
         }
         thread::sleep(Duration::from_millis(25));
-        inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+        inspection = inspect_broker_window(target)?;
     }
     if selected_candidate(&inspection).and_then(|candidate| candidate.is_minimized) != Some(true) {
         return Err(format!(
@@ -191,7 +195,7 @@ pub fn restore_broker_window(
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindowAsync, SW_RESTORE};
     inspect_broker_window(target)?;
     unsafe { ShowWindowAsync(target.hwnd_value as HWND, SW_RESTORE) };
-    let mut inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+    let mut inspection = inspect_broker_window(target)?;
     for _ in 0..20 {
         if selected_candidate(&inspection).and_then(|candidate| candidate.is_minimized)
             == Some(false)
@@ -199,7 +203,7 @@ pub fn restore_broker_window(
             break;
         }
         thread::sleep(Duration::from_millis(25));
-        inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+        inspection = inspect_broker_window(target)?;
     }
     if selected_candidate(&inspection).and_then(|candidate| candidate.is_minimized) != Some(false) {
         return Err(format!(
@@ -223,7 +227,7 @@ pub fn raise_broker_window(target: BrokerWindowTarget) -> Result<WindowControlOb
     // SW_RESTORE activates the target. Keep the launcher (or whichever app the
     // user is operating) in the foreground while revealing the whole group.
     unsafe { ShowWindowAsync(target.hwnd_value as HWND, SW_SHOWNOACTIVATE) };
-    let mut inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+    let mut inspection = inspect_broker_window(target)?;
     for _ in 0..20 {
         if selected_candidate(&inspection).and_then(|candidate| candidate.is_minimized)
             == Some(false)
@@ -231,7 +235,7 @@ pub fn raise_broker_window(target: BrokerWindowTarget) -> Result<WindowControlOb
             break;
         }
         thread::sleep(Duration::from_millis(25));
-        inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+        inspection = inspect_broker_window(target)?;
     }
     if selected_candidate(&inspection).and_then(|candidate| candidate.is_minimized) != Some(false) {
         return Err(format!(
@@ -256,7 +260,7 @@ pub fn raise_broker_window(target: BrokerWindowTarget) -> Result<WindowControlOb
             unsafe { GetLastError() }
         ));
     }
-    let inspection = inspect_process_windows(target.pid, Some(target.process_creation_time));
+    let inspection = inspect_broker_window(target)?;
     control_observation("group_raise", target, &inspection)
 }
 
@@ -377,6 +381,15 @@ pub fn query_process_creation_time(pid: u32) -> Result<u64, String> {
 pub fn inspect_process_windows(
     pid: u32,
     expected_process_creation_time_filetime_100ns: Option<u64>,
+) -> ProcessWindowInspection {
+    inspect_process_windows_impl(pid, expected_process_creation_time_filetime_100ns, None)
+}
+
+#[cfg(windows)]
+fn inspect_process_windows_impl(
+    pid: u32,
+    expected_process_creation_time_filetime_100ns: Option<u64>,
+    reported_hwnd: Option<usize>,
 ) -> ProcessWindowInspection {
     use std::mem::{size_of, zeroed};
     use windows_sys::Win32::Foundation::{GetLastError, BOOL, HWND, LPARAM, POINT, RECT};
@@ -537,8 +550,15 @@ pub fn inspect_process_windows(
         candidates: Vec::new(),
         warnings: creation_error.into_iter().collect(),
     };
-    let enum_ok =
-        unsafe { EnumWindows(Some(callback), &mut state as *mut CallbackState as LPARAM) };
+    let enum_ok = unsafe {
+        if let Some(hwnd) = reported_hwnd {
+            // Validate the authenticated HWND itself, including its current PID,
+            // class, owner and placement. Other SDL windows cannot make it ambiguous.
+            callback(hwnd as HWND, &mut state as *mut CallbackState as LPARAM)
+        } else {
+            EnumWindows(Some(callback), &mut state as *mut CallbackState as LPARAM)
+        }
+    };
     if enum_ok == 0 {
         let error = unsafe { GetLastError() };
         state
@@ -1081,6 +1101,91 @@ mod tests {
 
         assert_eq!(inspection.process_creation_time_matches, Some(true));
         assert_ne!(inspection.status, "process_identity_mismatch");
+    }
+
+    #[test]
+    fn authenticated_hwnd_ignores_other_sdl_windows_and_rejects_destroyed_handle() {
+        use std::ptr::null_mut;
+        use windows_sys::Win32::Foundation::HWND;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, UnregisterClassW,
+            WNDCLASSW, WS_OVERLAPPEDWINDOW,
+        };
+
+        struct TestWindows {
+            class: Vec<u16>,
+            windows: Vec<HWND>,
+        }
+        impl Drop for TestWindows {
+            fn drop(&mut self) {
+                unsafe {
+                    for hwnd in self.windows.drain(..) {
+                        DestroyWindow(hwnd);
+                    }
+                    UnregisterClassW(self.class.as_ptr(), null_mut());
+                }
+            }
+        }
+        let mut test = TestWindows {
+            class: "SDL_app\0".encode_utf16().collect(),
+            windows: Vec::new(),
+        };
+        unsafe {
+            let mut class: WNDCLASSW = std::mem::zeroed();
+            class.lpszClassName = test.class.as_ptr();
+            class.lpfnWndProc = Some(DefWindowProcW);
+            assert_ne!(RegisterClassW(&class), 0);
+            for _ in 0..2 {
+                // No WS_VISIBLE: these test-only windows never appear on the user's desktop.
+                let hwnd = CreateWindowExW(
+                    0,
+                    test.class.as_ptr(),
+                    test.class.as_ptr(),
+                    WS_OVERLAPPEDWINDOW,
+                    0,
+                    0,
+                    100,
+                    100,
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                    null_mut(),
+                );
+                assert!(!hwnd.is_null());
+                test.windows.push(hwnd);
+            }
+        }
+        let pid = std::process::id();
+        let creation = query_process_creation_time(pid).unwrap();
+        let target = BrokerWindowTarget {
+            pid,
+            process_creation_time: creation,
+            hwnd_value: test.windows[0] as usize,
+            hwnd_generation: 1,
+        };
+        assert_eq!(
+            inspect_process_windows(pid, Some(creation)).status,
+            "ambiguous_game_windows"
+        );
+        assert_eq!(
+            inspect_broker_window(target).unwrap().selected_hwnd_value,
+            Some(target.hwnd_value)
+        );
+        assert!(inspect_broker_window(BrokerWindowTarget {
+            process_creation_time: creation + 1,
+            ..target
+        })
+        .is_err());
+        assert!(
+            inspect_process_windows_impl(0, Some(creation), Some(target.hwnd_value))
+                .selected_hwnd_value
+                .is_none()
+        );
+        unsafe {
+            assert_ne!(DestroyWindow(test.windows.remove(0)), 0);
+        }
+        // The other SDL window must not be substituted for the destroyed reported HWND.
+        assert!(inspect_broker_window(target).is_err());
     }
 
     #[test]
