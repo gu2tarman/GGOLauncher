@@ -9,6 +9,7 @@ import { Modal } from "./Modal";
 import { OnboardingBanner } from "./OnboardingBanner";
 import { PluginPanel } from "./PluginPanel";
 import { Stage0DiagnosticsPanel } from "./Stage0DiagnosticsPanel";
+import { SurvivorCard } from "./SurvivorCard";
 import type {
   GroupControlAction,
   LauncherManifest,
@@ -46,10 +47,6 @@ const FALLBACK_SIDEBAR: Sidebar = {
         { label: "웹훅 발급소", url: "https://discord.gg/KQzHZsZ9eH" },
         { label: "문의하기", url: "https://open.kakao.com/o/sA71kz5d" },
       ],
-    },
-    {
-      label: "ORIGINAL CLASSICUO",
-      buttons: [{ label: "클래식유오", url: "https://www.classicuo.eu" }],
     },
   ],
 };
@@ -819,6 +816,8 @@ function App() {
             })}
           </div>
         ))}
+
+        {sidebar.featured && <SurvivorCard featured={sidebar.featured} />}
       </aside>
 
       {/* ── Right ────────────────────────── */}

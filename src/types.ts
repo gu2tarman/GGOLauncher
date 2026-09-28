@@ -108,10 +108,59 @@ export interface SidebarGroup {
   buttons: SidebarLink[];
 }
 
+/** 사이드바 하단 피처 카드 (UO 챔피언 서바이버) */
+export interface Featured {
+  title: string;
+  subtitle?: string | null;
+  /** [플레이] 링크 (외부 브라우저) */
+  url: string;
+  /** 카드·명예의 전당 배너 그림 HTTPS URL. 없거나 실패면 번들 survivor-card.jpg */
+  image_url?: string | null;
+  /** true면 1위 순환 줄 + [명예의 전당] 버튼 */
+  hall?: boolean | null;
+}
+
 export interface Sidebar {
   groups: SidebarGroup[];
   /** 배경 아트 원격 교체용 HTTPS URL. 없으면 번들 기본 배경(bg-default.jpg) 사용 */
   background_url?: string | null;
+  featured?: Featured | null;
+}
+
+// ── UO 챔피언 서바이버 명예의 전당 (서바이버 functions/api/public/hall.ts 응답) ──
+export interface HallEntry {
+  rank: number;
+  nickname: string;
+  title: string | null;
+  /** warrior | mage | ranger | ninja */
+  character: string;
+  /** 클리어 시간(초) */
+  time: number;
+}
+
+export interface HallBoard {
+  /** 직업 id, 오늘의 원정은 null(통합) */
+  job: string | null;
+  label: string;
+  /** 클리어 기록만, 최대 Hall.top명 */
+  top: HallEntry[];
+  past: { season: number; nickname: string; time: number } | null;
+}
+
+export interface HallStage {
+  id: string;
+  label: string;
+  /** 카드 순환 줄 앞머리 */
+  short: string;
+  boards: HallBoard[];
+}
+
+export interface Hall {
+  season: number;
+  updated: number;
+  top: number;
+  banner: { kicker: string; title: string };
+  stages: HallStage[];
 }
 
 

@@ -137,7 +137,7 @@ button:focus-visible,
   -webkit-backdrop-filter: blur(var(--blur));
 }
 
-/* 마지막 그룹(주로 ORIGINAL CLASSICUO)을 하단으로 — 공지 카드 끝과 정렬 */
+/* 마지막 그룹을 하단으로 — 공지 카드 끝과 정렬 (피처 카드가 있으면 카드가 마지막 div라 적용 안 됨) */
 .left-column > .btn-group:last-of-type {
   margin-top: auto;
 }
@@ -2468,3 +2468,302 @@ select.text-input {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ── 피처 카드 (UO 챔피언 서바이버, sidebar.json featured) ───────────
+   사이드바 맨 아래, 아랫단 = 공지 카드 아랫단. 금색 = 챔피언/명예 전용 톤
+   (teal·purple·amber·red 역할색과 겹치지 않게 그림으로 존재감). */
+.featured-card {
+  position: relative;
+  width: 100%;
+  margin-top: auto;
+  flex-shrink: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(232, 200, 130, 0.38);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.featured-img {
+  position: absolute;
+  inset: 0;
+  background-position: center 30%;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transition: transform 0.3s;
+}
+
+.featured-card:hover .featured-img { transform: scale(1.04); }
+
+.featured-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+    rgba(6, 10, 24, 0.05) 0%,
+    rgba(6, 10, 24, 0.35) 45%,
+    rgba(6, 10, 24, 0.92) 100%);
+}
+
+.featured-body {
+  position: relative;
+  padding: 22px 10px 9px;
+}
+
+.featured-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #f6e7c1;
+  text-shadow: 0 1px 3px #000;
+}
+
+.featured-sub {
+  font-size: 11px;
+  color: #d7dcf0;
+  text-shadow: 0 1px 2px #000;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 1위 순환 줄 — 2.5초마다 위로 밀려 교체 */
+.featured-rot {
+  position: relative;
+  height: 24px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.featured-rank {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-primary);
+  text-align: left;
+  white-space: nowrap;
+  background: rgba(6, 10, 24, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.featured-rank:hover { border-color: rgba(232, 200, 130, 0.45); }
+
+.featured-trophy { flex-shrink: 0; color: #e8c882; }
+.featured-rank-label { flex-shrink: 0; font-size: 10.5px; color: var(--text-dim); }
+.featured-rank-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #e8c882;
+  font-weight: 700;
+}
+.featured-rank-time { flex-shrink: 0; opacity: 0.85; }
+
+.featured-rank-in { animation: featured-rank-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.featured-rank-out {
+  animation: featured-rank-out 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  pointer-events: none;
+}
+
+@keyframes featured-rank-in {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes featured-rank-out {
+  from { transform: none; opacity: 1; }
+  to   { transform: translateY(-100%); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .featured-rank-in { animation: none; }
+  .featured-rank-out { display: none; }
+}
+
+.featured-actions { display: flex; gap: 6px; }
+
+.featured-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f6e7c1;
+  background: rgba(8, 12, 26, 0.72);
+  border: 1px solid rgba(232, 200, 130, 0.45);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.featured-btn:hover { background: rgba(40, 30, 12, 0.8); }
+.featured-btn .featured-trophy { color: currentColor; }
+
+.featured-btn-primary {
+  color: #1b1206;
+  background: linear-gradient(180deg, rgba(232, 200, 130, 0.95), rgba(196, 150, 70, 0.95));
+  border-color: rgba(255, 230, 170, 0.7);
+}
+.featured-btn-primary:hover {
+  background: linear-gradient(180deg, rgba(240, 212, 150, 1), rgba(208, 164, 84, 1));
+}
+
+/* 낮은 창(최소 680px)에서 카드가 잘리지 않게: 카드가 있을 때만 간격을 줄이고 부제를 숨김 */
+@media (max-height: 715px) {
+  .left-column:has(.featured-card) .logo-wrap { margin-bottom: 10px; }
+  .left-column:has(.featured-card) > .btn-group:not(:last-of-type) { margin-bottom: 10px; }
+  .featured-sub { display: none; }
+  .featured-body { padding-top: 12px; }
+}
+
+/* ── 명예의 전당 모달 ───────────────────────────── */
+.hall-hero {
+  position: relative;
+  height: 84px;
+  margin: -20px -22px 12px;
+  background-position: center 42%;
+  background-size: cover;
+}
+.hall-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 12, 26, 0.1), rgba(8, 12, 26, 0.95));
+}
+.hall-hero-text {
+  position: absolute;
+  left: 22px;
+  bottom: 10px;
+  z-index: 1;
+}
+.hall-kicker {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  color: #e8c882;
+}
+.hall-headline {
+  font-size: 17px;
+  font-weight: 800;
+  color: #f6e7c1;
+  text-shadow: 0 1px 3px #000;
+}
+
+.hall-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.hall-tab {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--chip);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.hall-tab.is-on {
+  color: #f6e7c1;
+  background: rgba(60, 44, 16, 0.45);
+  border-color: rgba(232, 200, 130, 0.55);
+}
+
+.hall-jobs {
+  display: flex;
+  gap: 4px;
+  width: max-content;
+  margin: -2px 0 10px;
+  padding: 3px;
+  background: rgba(6, 10, 24, 0.45);
+  border: 1px solid var(--chip-border);
+  border-radius: 9px;
+}
+.hall-job {
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mute);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.hall-job.is-on { color: #f6e7c1; background: rgba(232, 200, 130, 0.18); }
+
+.hall-section {
+  margin: 12px 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+}
+
+.hall-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 70px;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;   /* 칭호 없는 줄도 같은 높이 */
+  margin-bottom: 5px;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
+  border-radius: 8px;
+}
+.hall-rank { font-weight: 800; text-align: center; color: var(--text-mute); }
+.hall-rank-1 .hall-rank { color: #f3d27a; }
+.hall-rank-2 .hall-rank { color: #d6dce8; }
+.hall-rank-3 .hall-rank { color: #d9a066; }
+.hall-rank-1 {
+  background: linear-gradient(90deg, rgba(90, 66, 20, 0.45), var(--chip));
+  border-color: rgba(243, 210, 122, 0.45);
+}
+.hall-name { min-width: 0; }
+.hall-name b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.hall-name span { display: block; font-size: 11px; color: #e8c882; }
+.hall-time { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+
+.hall-past {
+  margin-top: 8px;
+  padding-top: 6px;
+  font-size: 11px;
+  color: var(--text-mute);
+  border-top: 1px dashed rgba(232, 200, 130, 0.25);
+}
+.hall-past b { color: #e8c882; }
+
+.hall-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 0;
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
+.hall-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.hall-foot-btn { flex: none; padding: 0 12px; }

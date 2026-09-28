@@ -28,12 +28,30 @@ pub struct SidebarGroup {
     pub buttons: Vec<SidebarLink>,
 }
 
+/// 사이드바 하단 피처 카드 (UO 챔피언 서바이버). 없으면 카드를 그리지 않음.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Featured {
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    /// [플레이] 링크 (외부 브라우저)
+    pub url: String,
+    /// 카드·명예의 전당 배너 그림 HTTPS URL. 없거나 로드 실패면 런처 번들 그림.
+    #[serde(default)]
+    pub image_url: Option<String>,
+    /// true면 1위 순환 줄 + [명예의 전당] 버튼 표시
+    #[serde(default)]
+    pub hall: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sidebar {
     pub groups: Vec<SidebarGroup>,
     /// 배경 아트 원격 교체용 HTTPS URL. null이면 런처 번들 기본 배경 사용.
     #[serde(default)]
     pub background_url: Option<String>,
+    #[serde(default)]
+    pub featured: Option<Featured>,
 }
 
 pub async fn fetch() -> Result<Sidebar, String> {

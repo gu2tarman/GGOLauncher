@@ -3,6 +3,7 @@ import type {
   CuoProfileCandidate,
   FolderKind,
   GroupControlAction,
+  Hall,
   GroupControlResult,
   LauncherManifest,
   MultiLaunchResult,
@@ -27,6 +28,7 @@ export const api = {
 
   fetchNotice: () => invoke<NoticeBoard>("fetch_notice"),
   fetchSidebar: () => invoke<Sidebar>("fetch_sidebar"),
+  fetchSurvivorHall: () => invoke<Hall>("fetch_survivor_hall"),
   inspectPath: (path: string) => invoke<PathInfo>("inspect_path", { path }),
   detectClientVersion: (uoPath: string) =>
     invoke<string | null>("detect_client_version", { uoPath }),

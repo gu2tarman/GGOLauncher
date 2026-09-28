@@ -9,6 +9,7 @@ mod profile;
 mod self_updater;
 mod settings;
 mod sidebar;
+mod survivor;
 mod updater;
 
 use notice::NoticeBoard;
@@ -293,6 +294,12 @@ async fn fetch_sidebar() -> Result<sidebar::Sidebar, String> {
     sidebar::fetch().await
 }
 
+// ── UO 챔피언 서바이버 명예의 전당 ────────────────────────
+#[tauri::command]
+async fn fetch_survivor_hall() -> Result<serde_json::Value, String> {
+    survivor::fetch_hall().await
+}
+
 // ── CUO 업데이트 체크 ─────────────────────────────────────
 #[tauri::command]
 async fn cuo_check_update(cuo_path: String) -> Result<updater::UpdateCheck, String> {
@@ -394,6 +401,7 @@ pub fn run() {
             add_plugin,
             fetch_notice,
             fetch_sidebar,
+            fetch_survivor_hall,
             cuo_check_update,
             cuo_fetch_manifest_for_install,
             cuo_apply_update,
