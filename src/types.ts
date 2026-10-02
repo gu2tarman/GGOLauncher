@@ -27,6 +27,22 @@ export interface CuoProfileCandidate {
   characters: string[];
 }
 
+export interface ImportRequest {
+  kind: "cuo" | "re" | "ca";
+  source: string;
+  destination: string;
+  selected: string[];
+  replace: boolean;
+}
+export interface ImportItem { id: string; group: string; label: string; bytes: number }
+export interface ImportScan { items: ImportItem[]; notes: string[] }
+export interface ImportPreview {
+  fingerprint: string;
+  changes: Array<{ path: string; action: string; bytes: number }>;
+  notes: string[];
+}
+export interface ImportResult { copied: number; skipped: number; backup: string; notes: string[] }
+
 export interface ServerConfig {
   address: string;
   port: number;

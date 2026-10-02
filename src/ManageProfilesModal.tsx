@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Modal } from "./Modal";
+import { ProfileImportModal } from "./ProfileImportModal";
 import type { Profile, Settings } from "./types";
 
 type Props = {
@@ -22,6 +23,7 @@ export function ManageProfilesModal({
   onCreate,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
   const pointerDragRef = useRef<{
@@ -107,6 +109,7 @@ export function ManageProfilesModal({
   };
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -118,9 +121,12 @@ export function ManageProfilesModal({
       }
       width={780}
       headerActions={
+        <>
+        <button className="btn-action" onClick={() => setImportOpen(true)}>프로필 가져오기</button>
         <button className="btn-primary btn-primary-sm" onClick={onCreateClick}>
           + 새 프로필
         </button>
+        </>
       }
     >
       {settings.profiles.length === 0 && (
@@ -285,5 +291,7 @@ export function ManageProfilesModal({
         </div>
       )}
     </Modal>
+    {open && importOpen && <ProfileImportModal settings={settings} initialProfileId={settings.active_profile_id} onClose={() => setImportOpen(false)} />}
+    </>
   );
 }

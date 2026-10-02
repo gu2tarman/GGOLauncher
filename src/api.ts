@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ImportRequest, ImportScan, ImportPreview, ImportResult,
   CuoProfileCandidate,
   FolderKind,
   GroupControlAction,
@@ -20,6 +21,10 @@ import type {
 } from "./types";
 
 export const api = {
+  importSelectDirectory: () => invoke<string | null>("import_select_directory"),
+  profileImportScan: (request: ImportRequest) => invoke<ImportScan>("profile_import_scan", { request }),
+  profileImportPreview: (request: ImportRequest) => invoke<ImportPreview>("profile_import_preview", { request }),
+  profileImportApply: (request: ImportRequest, fingerprint: string) => invoke<ImportResult>("profile_import_apply", { request, fingerprint }),
   openExternal: (url: string) => invoke<void>("open_external", { url }),
 
   launcherInit: () => invoke<Settings>("launcher_init"),

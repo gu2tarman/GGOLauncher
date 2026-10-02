@@ -471,7 +471,7 @@ fn resolve_launch_context(
     ),
     String,
 > {
-    let profile = s
+    let mut profile = s
         .profiles
         .iter()
         .find(|p| p.id == profile_id)
@@ -508,7 +508,29 @@ fn resolve_launch_context(
         ));
     }
 
+    // Resolve once per PLAY/MULTI invocation, without persisting the detected
+    // value: the next invocation must observe a newly patched client.exe.
+    profile.client_version = Some(resolve_client_version(
+        &profile,
+        crate::paths::detect_client_version,
+    )?);
     Ok((profile, plugin, cuo_dir, cuo_exe, plugin_path))
+}
+
+fn resolve_client_version(
+    profile: &Profile,
+    detect: impl FnOnce(&str) -> Option<String>,
+) -> Result<String, String> {
+    if let Some(version) = profile
+        .client_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        return Ok(version.to_owned());
+    }
+    detect(profile.uo_path.trim()).filter(|v| !v.trim().is_empty()).ok_or_else(||
+        "UO 클라이언트 버전을 감지하지 못했습니다. UO 경로의 client.exe를 확인하거나 프로필에서 버전을 직접 입력해주세요.".to_owned())
 }
 
 fn find_cuo_exe(dir: &Path) -> Option<PathBuf> {
@@ -549,7 +571,7 @@ fn build_cuo_args(
         out.push(profile.server.port.to_string());
     }
 
-    // 클라이언트 버전 (값 있을 때만 — 비우면 CUO 자동감지)
+    // resolve_launch_context resolves both automatic and manual modes.
     if let Some(v) = profile.client_version.as_deref().map(str::trim) {
         if !v.is_empty() {
             out.push("-clientversion".into());
@@ -828,6 +850,58 @@ fn explain_win_error(code: u32) -> &'static str {
 mod tests {
     use super::*;
     use crate::profile::SecondarySlot;
+
+    fn version_profile(version: Option<&str>) -> Profile {
+        let mut p: Profile = serde_json::from_str(r#"{"id":"test","name":"test","uo_path":" UO ","server":{"address":"localhost","port":2593}}"#).unwrap();
+        p.client_version = version.map(str::to_owned);
+        p
+    }
+
+    #[test]
+    fn automatic_version_rechecks_patch_and_is_passed_to_single_and_multi_args() {
+        let original = version_profile(None);
+        for detected in ["7.0.114.65", "7.0.117.1"] {
+            let mut resolved = original.clone();
+            resolved.client_version = Some(
+                resolve_client_version(&original, |path| {
+                    assert_eq!(path, "UO");
+                    Some(detected.into())
+                })
+                .unwrap(),
+            );
+            for account in [None, Some(account("multi", None))] {
+                let args = build_cuo_args(&resolved, "plugin.dll", account.as_ref(), None);
+                assert!(args.contains(&format!("-clientversion {detected}")));
+            }
+        }
+        assert!(original.client_version.is_none());
+    }
+
+    #[test]
+    fn manual_version_wins_and_failed_auto_detection_is_not_silent() {
+        assert_eq!(
+            resolve_client_version(&version_profile(Some(" 7.0.99.1 ")), |_| panic!(
+                "manual must not detect"
+            ))
+            .unwrap(),
+            "7.0.99.1"
+        );
+        for value in [None, Some(""), Some("  ")] {
+            assert!(resolve_client_version(&version_profile(value), |_| None).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires GGO_UO_TEST_PATH pointing to an installed UO client"]
+    fn installed_client_version_reaches_launch_arguments() {
+        let mut p = version_profile(None);
+        p.uo_path = std::env::var("GGO_UO_TEST_PATH").unwrap();
+        let version = resolve_client_version(&p, crate::paths::detect_client_version).unwrap();
+        println!("Installed client.exe version: {version}");
+        p.client_version = Some(version.clone());
+        assert!(build_cuo_args(&p, "plugin.dll", None, None)
+            .contains(&format!("-clientversion {version}")));
+    }
 
     fn account(id: &str, slot: Option<SecondarySlot>) -> Account {
         Account {

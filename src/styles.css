@@ -2767,3 +2767,30 @@ select.text-input {
   color: var(--text-mute);
 }
 .hall-foot-btn { flex: none; padding: 0 12px; }
+/* Profile migration */
+.profile-import { display: grid; gap: 16px; }
+.import-intro { margin: 0; line-height: 1.6; }
+.import-source > summary { cursor: pointer; padding: 8px 0; font-size: 13px; color: #83d5ce; }
+.import-fields { border: 0; padding: 0; margin: 0; display: grid; gap: 12px; min-width: 0; }
+.import-fields > label { display: grid; gap: 6px; font-size: 13px; }
+.import-path { display: flex; gap: 8px; }
+.import-path input { flex: 1; min-width: 0; }
+.import-path button { flex-shrink: 0; }
+.import-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.import-toolbar input { flex: 1; min-width: 180px; }
+.import-items { max-height: 310px; overflow: auto; border: 1px solid #ffffff26; border-radius: 8px; }
+.import-items summary { padding: 10px 12px; cursor: pointer; background: #ffffff08; overflow-wrap: anywhere; }
+.import-items summary span { opacity: .6; margin-left: 8px; }
+.import-check { display: flex !important; align-items: flex-start; gap: 8px; padding: 7px 10px; font-size: 13px; line-height: 1.5; }
+.import-check input { flex-shrink: 0; margin-top: 3px; }
+.import-check span { overflow-wrap: anywhere; }
+.import-check small { display: block; opacity: .55; }
+.import-hint, .import-notes { font-size: 12px; line-height: 1.7; opacity: .8; margin: 0; }
+.import-notes { padding-left: 20px; overflow-wrap: anywhere; }
+.import-preview { display: grid; gap: 12px; padding: 16px; background: #ffffff06; border: 1px solid #ffffff26; border-radius: 8px; }
+.import-change-list { max-height: 240px; overflow: auto; }
+.import-change { display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 8px; padding: 8px 0; font-size: 12px; border-bottom: 1px solid #ffffff14; }
+.import-change span, .import-backup-path { overflow-wrap: anywhere; user-select: text; }
+.import-error { color: #ffb5aa; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #bf5555; border-radius: 6px; }
+.import-result { border: 1px solid #759b78; padding: 16px; border-radius: 8px; line-height: 1.6; }
+.import-fields > .btn-primary, .import-preview > .btn-primary { justify-self: start; }

@@ -591,16 +591,18 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
           hint={
             detecting
               ? "감지 중..."
+              : draft.client_version
+              ? "직접 지정한 버전으로 실행합니다. 비우면 자동 감지로 돌아갑니다."
               : autoVersion
-              ? `자동 감지된 값입니다 (필요 시만 수정)`
+              ? `자동 감지: ${autoVersion} · 실행할 때마다 다시 확인합니다.`
               : "client.exe에서 자동 감지 (UO 경로 먼저 설정)"
           }
         >
           <input
             className="text-input"
-            value={draft.client_version ?? autoVersion ?? ""}
+            value={draft.client_version ?? ""}
             onChange={(e) => update("client_version", e.target.value || null)}
-            placeholder="(자동 감지)"
+            placeholder={autoVersion ? `자동 · ${autoVersion}` : "(자동 감지)"}
           />
         </Field>
       </section>

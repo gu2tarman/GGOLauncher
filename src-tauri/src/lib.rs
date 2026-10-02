@@ -6,6 +6,7 @@ mod notice;
 mod paths;
 mod plugins;
 mod profile;
+mod profile_import;
 mod self_updater;
 mod settings;
 mod sidebar;
@@ -147,6 +148,39 @@ fn get_launcher_dir() -> Option<String> {
 #[tauri::command]
 fn list_cuo_profiles(cuo_path: String) -> Vec<cuo_profiles::CuoProfileCandidate> {
     cuo_profiles::list(&cuo_path)
+}
+
+#[tauri::command]
+async fn import_select_directory() -> Option<String> {
+    paths::pick_folder(None, "프로필 가져오기: 설치 폴더 선택").await
+}
+
+#[tauri::command]
+async fn profile_import_scan(
+    request: profile_import::Request,
+) -> Result<profile_import::Scan, String> {
+    tauri::async_runtime::spawn_blocking(move || profile_import::scan(&request))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn profile_import_preview(
+    request: profile_import::Request,
+) -> Result<profile_import::Preview, String> {
+    tauri::async_runtime::spawn_blocking(move || profile_import::preview(&request))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn profile_import_apply(
+    request: profile_import::Request,
+    fingerprint: String,
+) -> Result<profile_import::ImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || profile_import::apply(&request, &fingerprint))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -384,6 +418,10 @@ pub fn run() {
             detect_folder_kind,
             get_launcher_dir,
             list_cuo_profiles,
+            import_select_directory,
+            profile_import_scan,
+            profile_import_preview,
+            profile_import_apply,
             client_select_directory,
             cuo_select_directory,
             cuo_launch,

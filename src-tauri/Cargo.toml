@@ -1,6 +1,6 @@
 [package]
 name = "ggo-launcher"
-version = "0.2.6"
+version = "0.2.7"
 description = "GGO Custom Edition Launcher"
 edition = "2021"
 rust-version = "1.77"
@@ -41,6 +41,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Registry",
     "Win32_System_Memory",
     "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_IO",
     "Win32_System_Pipes",
     "Win32_Security",
