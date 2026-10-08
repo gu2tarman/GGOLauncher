@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { ProfileImportModal } from "./ProfileImportModal";
+import { DEFAULT_SERVER_PRESET } from "./serverPresets";
 import type { Profile, Settings } from "./types";
 
 type Props = {
@@ -76,9 +77,9 @@ export function ManageProfilesModal({
       client_version: null,
       secondary_layout_preset: "two_by_two",
       server: {
-        address: "login.uoserver.com",
-        port: 2593,
-        encryption: "auto",
+        address: DEFAULT_SERVER_PRESET.address,
+        port: DEFAULT_SERVER_PRESET.port,
+        encryption: DEFAULT_SERVER_PRESET.encryption,
         accounts: [],
         active_account_id: null,
       },

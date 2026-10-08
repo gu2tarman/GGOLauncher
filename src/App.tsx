@@ -10,6 +10,7 @@ import { OnboardingBanner } from "./OnboardingBanner";
 import { PluginPanel } from "./PluginPanel";
 import { Stage0DiagnosticsPanel } from "./Stage0DiagnosticsPanel";
 import { SurvivorCard } from "./SurvivorCard";
+import { DEFAULT_SERVER_PRESET } from "./serverPresets";
 import type {
   GroupControlAction,
   LauncherManifest,
@@ -130,9 +131,9 @@ function createInstallProfile(cuoPath: string, count: number): Profile {
     client_version: null,
     secondary_layout_preset: "two_by_two",
     server: {
-      address: "login.uoserver.com",
-      port: 2593,
-      encryption: "auto",
+      address: DEFAULT_SERVER_PRESET.address,
+      port: DEFAULT_SERVER_PRESET.port,
+      encryption: DEFAULT_SERVER_PRESET.encryption,
       accounts: [],
       active_account_id: null,
     },
@@ -1200,6 +1201,7 @@ function App() {
           />
           <EditProfileModal
             open={editingId !== null || draftProfile !== null}
+            knownCuoPaths={settings.profiles.flatMap((p) => (p.cuo_path ? [p.cuo_path] : []))}
             profile={
               draftProfile
                 ? draftProfile

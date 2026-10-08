@@ -42,7 +42,7 @@ export function OnboardingBanner({ settings, onDismiss }: Props) {
           ✕
         </button>
       </div>
-      <Step ok={hasPlugin} label="1. 플러그인 등록" hint="Razor 또는 ClassicAssist" />
+      <Step ok={hasPlugin} label="1. 플러그인 등록" hint="플러그인 패널의 자동 찾기 또는 + 추가" />
       <Step ok={hasProfile} label="2. 프로필 생성" hint="프로필 관리에서 첫 프로필 생성" />
       <Step ok={hasLaunched} label="3. PLAY 또는 MULTI LOGIN" hint="실행해보면 완료" />
     </div>

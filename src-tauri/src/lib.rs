@@ -1,5 +1,6 @@
 mod crypto;
 mod cuo_profiles;
+mod discover;
 mod launcher;
 mod multiclient;
 mod notice;
@@ -133,6 +134,18 @@ fn detect_client_version(uo_path: String) -> Option<String> {
 #[tauri::command]
 fn detect_ggoce_version(cuo_path: String) -> Option<String> {
     paths::detect_ggoce_version(&cuo_path)
+}
+
+#[tauri::command]
+fn discover_uo_folder() -> Option<String> {
+    discover::find_uo_folder()
+}
+
+#[tauri::command]
+async fn discover_installations() -> Result<discover::Discovery, String> {
+    tauri::async_runtime::spawn_blocking(discover::scan)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -416,6 +429,8 @@ pub fn run() {
             detect_client_version,
             detect_ggoce_version,
             detect_folder_kind,
+            discover_uo_folder,
+            discover_installations,
             get_launcher_dir,
             list_cuo_profiles,
             import_select_directory,

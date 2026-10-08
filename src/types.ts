@@ -22,6 +22,22 @@ export interface Account {
 
 export type SecondaryLayoutPreset = "two_by_two" | "two_by_two_center";
 
+/** 설치 자동 탐색 결과 (Rust discover::Discovery). */
+export interface FoundPlugin {
+  path: string;
+  kind: "re" | "ca" | "other";
+}
+export interface FoundCuo {
+  path: string;
+  /** version.txt가 있는 GGO CE 폴더 (아니면 원본 ClassicUO) */
+  ggoce: boolean;
+}
+export interface Discovery {
+  uo_folders: string[];
+  cuo_folders: FoundCuo[];
+  plugins: FoundPlugin[];
+}
+
 export interface CuoProfileCandidate {
   account: string;
   characters: string[];

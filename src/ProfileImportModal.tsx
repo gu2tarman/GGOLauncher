@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { Modal } from "./Modal";
-import type { ImportPreview, ImportRequest, ImportResult, ImportScan, Settings } from "./types";
+import type { Discovery, ImportPreview, ImportRequest, ImportResult, ImportScan, Settings } from "./types";
 
 const kindNames = { cuo: "ClassicUO → GGO CE", re: "Razor Enhanced", ca: "ClassicAssist" };
 const labels: Record<string, string> = {
@@ -24,6 +24,8 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
   const [closed, setClosed] = useState(false);
+  const [discovery, setDiscovery] = useState<Discovery | null>(null);
+  useEffect(() => { api.discoverInstallations().then(setDiscovery).catch(() => setDiscovery(null)); }, []);
 
   const targets = useMemo(() => request.kind === "cuo"
     ? settings.profiles.filter(p => p.cuo_path).map(p => ({ label: p.name, path: p.cuo_path! }))
@@ -37,6 +39,17 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
     }
     return [...map];
   }, [scan, filter]);
+
+  /** 고른 종류에 맞는 자동 탐색 후보 (대상 폴더 제외). */
+  const sources = useMemo(() => {
+    if (!discovery) return [];
+    const dirOf = (path: string) => path.replace(/[\\/][^\\/]+$/, "");
+    const list = request.kind === "cuo"
+      ? discovery.cuo_folders.map(c => ({ path: c.path, label: c.ggoce ? "GGO CE" : "원본 ClassicUO" }))
+      : discovery.plugins.filter(p => p.kind === request.kind).map(p => ({ path: dirOf(p.path), label: kindNames[request.kind] }));
+    const dest = request.destination.trim().toLowerCase();
+    return list.filter(c => c.path.toLowerCase() !== dest);
+  }, [discovery, request.kind, request.destination]);
 
   const reset = (patch: Partial<ImportRequest>) => {
     setRequest(r => ({ ...r, ...patch, selected: [] }));
@@ -70,6 +83,10 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
           </select>
         </label>
         <label>원본 설치 폴더
+          {sources.length > 0 && <select className="text-input" aria-label="자동으로 찾은 원본 폴더" value={sources.some(c => c.path === request.source) ? request.source : ""} onChange={e => { if (e.target.value) reset({ source: e.target.value }); }}>
+            <option value="">이 PC에서 찾은 폴더 {sources.length}개 — 선택하거나 아래에 직접 지정</option>
+            {sources.map(c => <option key={c.path} value={c.path}>{c.label} · {c.path}</option>)}
+          </select>}
           <div className="import-path"><input className="text-input" value={request.source} placeholder="기존 프로그램이 설치된 폴더" onChange={e => reset({ source: e.target.value })}/><button className="btn-action" onClick={() => pick("source")}>찾아보기</button></div>
         </label>
         <label>가져올 대상

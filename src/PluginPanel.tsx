@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { PluginDiscoverModal } from "./PluginDiscoverModal";
 import type { PluginEntry } from "./types";
 
 type Props = {
@@ -112,6 +113,17 @@ export function PluginPanel({ plugins, onChange }: Props) {
     }
   };
 
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+
+  /** 자동 찾기로 고른 플러그인 추가. 활성 플러그인이 없을 때만 첫 항목을 활성으로. */
+  const onAddDiscovered = (paths: string[]) => {
+    const known = new Set(plugins.map((p) => p.path.toLowerCase()));
+    const fresh = paths.filter((path) => !known.has(path.toLowerCase()));
+    if (fresh.length === 0) return;
+    const appended = [...plugins, ...fresh.map((path) => ({ path, enabled: false }))];
+    onChange(setSelected(appended, activeIdx >= 0 ? activeIdx : plugins.length));
+  };
+
   const onSelect = (idx: number) => {
     if (idx === activeIdx) return; // 같은 거 재클릭은 무시 (해제 불가)
     onChange(setSelected(plugins, idx));
@@ -137,6 +149,12 @@ export function PluginPanel({ plugins, onChange }: Props) {
 
   return (
     <section className="plugin-panel">
+      <PluginDiscoverModal
+        open={discoverOpen}
+        registered={plugins.map((p) => p.path)}
+        onClose={() => setDiscoverOpen(false)}
+        onAdd={onAddDiscovered}
+      />
       <header className="panel-header panel-header-row">
         <span>
           플러그인
@@ -145,6 +163,13 @@ export function PluginPanel({ plugins, onChange }: Props) {
           )}
         </span>
         <div className="panel-actions">
+          <button
+            className="btn-small"
+            onClick={() => setDiscoverOpen(true)}
+            title="이 PC에 설치된 RazorEnhanced / ClassicAssist를 찾습니다."
+          >
+            자동 찾기
+          </button>
           <button
             className="btn-small"
             onClick={onAdd}
@@ -171,6 +196,13 @@ export function PluginPanel({ plugins, onChange }: Props) {
                 justifyContent: "center",
               }}
             >
+              <button
+                className="btn-small"
+                onClick={() => setDiscoverOpen(true)}
+                title="이 PC에 설치된 RazorEnhanced / ClassicAssist를 찾습니다."
+              >
+                자동 찾기
+              </button>
               <button
                 className="btn-small"
                 onClick={onAdd}

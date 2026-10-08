@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ImportRequest, ImportScan, ImportPreview, ImportResult,
   CuoProfileCandidate,
+  Discovery,
   FolderKind,
   GroupControlAction,
   Hall,
@@ -35,6 +36,8 @@ export const api = {
   fetchSidebar: () => invoke<Sidebar>("fetch_sidebar"),
   fetchSurvivorHall: () => invoke<Hall>("fetch_survivor_hall"),
   inspectPath: (path: string) => invoke<PathInfo>("inspect_path", { path }),
+  discoverUoFolder: () => invoke<string | null>("discover_uo_folder"),
+  discoverInstallations: () => invoke<Discovery>("discover_installations"),
   detectClientVersion: (uoPath: string) =>
     invoke<string | null>("detect_client_version", { uoPath }),
   detectGgoceVersion: (cuoPath: string) =>

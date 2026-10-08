@@ -1,6 +1,7 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { api } from "./api";
+import { SERVER_PRESETS, findServerPreset } from "./serverPresets";
 import type {
   Account,
   CuoProfileCandidate,
@@ -15,6 +16,8 @@ type Props = {
   profile: Profile | null;
   onClose: () => void;
   onSave: (next: Profile) => void;
+  /** 다른 프로필들이 쓰는 CUO 경로 — 빈 CUO 경로 자동 채우기 1순위 */
+  knownCuoPaths?: string[];
 };
 
 const ENCRYPTIONS: { value: EncryptionType; label: string }[] = [
@@ -48,7 +51,7 @@ const SLOT_LABELS: Record<SecondarySlot, string> = {
   center: "중앙",
 };
 
-export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
+export function EditProfileModal({ open, profile, onClose, onSave, knownCuoPaths = [] }: Props) {
   // 로컬 폼 state — 모달 열릴 때마다 prop으로 초기화. Save 시에만 부모에 반영.
   const [draft, setDraft] = useState<Profile | null>(profile);
   const [uoCheck, setUoCheck] = useState<PathInfo | null>(null);
@@ -63,6 +66,13 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<LayoutDropTarget | null>(null);
   const layoutPointerGesture = useRef<LayoutPointerGesture | null>(null);
+  /** 서버 선택: 프리셋 id 또는 "custom"(직접 입력). 프로필을 열 때 주소로 판정. */
+  const [serverChoice, setServerChoice] = useState<string>("custom");
+  /** UO 경로가 비어 있어 자동 탐색으로 채웠는지 (안내 문구용). */
+  const [uoAutoFilled, setUoAutoFilled] = useState(false);
+  const [cuoAutoFilled, setCuoAutoFilled] = useState(false);
+  /** 이번 편집에서 사용자가 직접 손댄 경로 칸 — 자동 채우기가 덮어쓰지 않도록. */
+  const pathTouched = useRef({ uo_path: false, cuo_path: false });
 
   // multiWarning 3초 자동 닫힘
   useEffect(() => {
@@ -74,6 +84,7 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
   useEffect(() => {
     if (!profile) {
       setDraft(null);
+      setServerChoice("custom");
       setShowPw({});
       setDraggedAccountId(null);
       setDragOverTarget(null);
@@ -93,10 +104,30 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       );
       if (cancelled) return;
       setDraft({ ...profile, server: { ...profile.server, accounts } });
+      setServerChoice(findServerPreset(profile.server)?.id ?? "custom");
+      setUoAutoFilled(false);
+      setCuoAutoFilled(false);
+      pathTouched.current = { uo_path: false, cuo_path: false };
       setShowPw({});
       setDraggedAccountId(null);
       setDragOverTarget(null);
       layoutPointerGesture.current = null;
+      if (!profile.uo_path.trim()) {
+        const found = await api.discoverUoFolder().catch(() => null);
+        if (cancelled) return;
+        if (found) {
+          if (!pathTouched.current.uo_path) {
+            setDraft((d) => (d && !d.uo_path.trim() ? { ...d, uo_path: found } : d));
+            setUoAutoFilled(true);
+          }
+        }
+      }
+      if (!profile.cuo_path?.trim()) {
+        const found = await findGgoceFolder(knownCuoPaths);
+        if (cancelled || !found || pathTouched.current.cuo_path) return;
+        setDraft((d) => (d && !d.cuo_path?.trim() ? { ...d, cuo_path: found } : d));
+        setCuoAutoFilled(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -176,8 +207,11 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
 
   if (!draft) return null;
 
-  const update = <K extends keyof Profile>(key: K, value: Profile[K]) =>
+  const update = <K extends keyof Profile>(key: K, value: Profile[K]) => {
+    if (key === "uo_path") pathTouched.current.uo_path = true;
+    if (key === "cuo_path") pathTouched.current.cuo_path = true;
     setDraft((d) => (d ? { ...d, [key]: value } : d));
+  };
 
   const updateServer = <K extends keyof Profile["server"]>(
     key: K,
@@ -566,7 +600,14 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       {/* Game Paths */}
       <section className="form-section">
         <header className="form-section-title">게임 경로</header>
-        <Field label="UO 경로" hint="Ultima Online 클라이언트 폴더">
+        <Field
+          label="UO 경로"
+          hint={
+            uoAutoFilled
+              ? "설치된 UO 클라이언트를 자동으로 찾아 채웠습니다. 다르면 바꿔 주세요."
+              : "Ultima Online 클라이언트 폴더"
+          }
+        >
           <PathRow
             value={draft.uo_path}
             onChange={(v) => update("uo_path", v)}
@@ -576,7 +617,14 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
             validateKind="uo"
           />
         </Field>
-        <Field label="CUO 경로" hint="ClassicUO.exe가 있는 폴더 (선택)">
+        <Field
+          label="CUO 경로"
+          hint={
+            cuoAutoFilled
+              ? "설치된 GGO CE를 찾아 채웠습니다. 비우면 런처가 새로 설치합니다."
+              : "ClassicUO.exe가 있는 폴더 (선택)"
+          }
+        >
           <PathRow
             value={draft.cuo_path ?? ""}
             onChange={(v) => update("cuo_path", v || null)}
@@ -610,6 +658,41 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
       {/* Server */}
       <section className="form-section">
         <header className="form-section-title">서버 접속</header>
+        <Field label="서버">
+          <select
+            className="text-input"
+            value={serverChoice}
+            onChange={(e) => {
+              const choice = e.target.value;
+              setServerChoice(choice);
+              const preset = SERVER_PRESETS.find((p) => p.id === choice);
+              if (preset) {
+                setDraft((d) =>
+                  d
+                    ? {
+                        ...d,
+                        server: {
+                          ...d.server,
+                          address: preset.address,
+                          port: preset.port,
+                          encryption: preset.encryption,
+                        },
+                      }
+                    : d
+                );
+              }
+            }}
+          >
+            {SERVER_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label} — {p.address}:{p.port}
+              </option>
+            ))}
+            <option value="custom">직접 입력</option>
+          </select>
+        </Field>
+        {serverChoice === "custom" && (
+        <>
         <div className="row-2">
           <Field label="서버 주소">
             <input
@@ -647,6 +730,8 @@ export function EditProfileModal({ open, profile, onClose, onSave }: Props) {
             ))}
           </select>
         </Field>
+        </>
+        )}
       </section>
 
       {/* Accounts */}
@@ -940,6 +1025,17 @@ function Field({
       {children}
     </div>
   );
+}
+
+/** 빈 CUO 경로를 채울 GGO CE 폴더: 다른 프로필이 쓰는 GGO CE → 탐색으로 찾은 첫 GGO CE.
+ *  원본 ClassicUO는 업데이트 시 덮어쓰기로 이어지므로 채우지 않는다. */
+async function findGgoceFolder(knownCuoPaths: string[]): Promise<string | null> {
+  for (const path of knownCuoPaths) {
+    const kind = await api.detectFolderKind(path).catch(() => null);
+    if (kind?.kind === "ggoce") return path;
+  }
+  const found = await api.discoverInstallations().catch(() => null);
+  return found?.cuo_folders.find((c) => c.ggoce)?.path ?? null;
 }
 
 function PathRow({
