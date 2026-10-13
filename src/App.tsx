@@ -352,8 +352,21 @@ function App() {
         setUpdateState({ kind: "downloading", percent });
       }
     );
+    // 완료/실패 — 트레이에서 창을 다시 연 경우 invoke 응답 대신 이 이벤트로 갱신된다.
+    const unlistenFinished = listen<{ error: string | null }>(
+      "cuo_update_finished",
+      (e) => {
+        if (e.payload.error) {
+          setUpdateState({ kind: "error", message: e.payload.error });
+        } else {
+          pendingCheck.current = null;
+          setUpdateState({ kind: "uptodate" });
+        }
+      }
+    );
     return () => {
       unlistenPromise.then((u) => u());
+      unlistenFinished.then((u) => u());
     };
   }, []);
 
@@ -405,9 +418,8 @@ function App() {
     setSelfUpdate({ kind: "downloading", percent: 0 });
     try {
       await api.launcherApplyUpdate(manifest);
+      // updater.bat이 swap+restart 담당 — 런처 종료는 백엔드가 직접 수행
       setSelfUpdate({ kind: "applying" });
-      // updater.bat이 swap+restart 담당 — 런처 자기 종료
-      setTimeout(() => api.quitLauncher().catch(() => {}), 300);
     } catch (e) {
       setSelfUpdate({ kind: "error", message: String(e) });
     }

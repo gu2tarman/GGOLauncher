@@ -12,6 +12,7 @@ mod self_updater;
 mod settings;
 mod sidebar;
 mod survivor;
+mod tray;
 mod updater;
 
 use notice::NoticeBoard;
@@ -368,22 +369,29 @@ async fn cuo_apply_update(
     cuo_path: String,
     check: updater::UpdateCheck,
     allow_original_overwrite: bool,
-    window: tauri::Window,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     use tauri::Emitter;
-    let win = window.clone();
-    updater::apply_update(
+    let progress_app = app.clone();
+    let result = updater::apply_update(
         &cuo_path,
         &check,
         allow_original_overwrite,
         move |bytes_done, total| {
-            let _ = win.emit(
+            let _ = progress_app.emit(
                 "cuo_update_progress",
                 serde_json::json!({ "bytesDone": bytes_done, "totalBytes": total }),
             );
         },
     )
-    .await
+    .await;
+    // 트레이 상주 중 창이 재생성되면 invoke 응답은 사라진 창으로 간다.
+    // 완료/실패를 이벤트로도 알려 새 창이 상태를 갱신하게 한다.
+    let _ = app.emit(
+        "cuo_update_finished",
+        serde_json::json!({ "error": result.as_ref().err() }),
+    );
+    result
 }
 
 // ── 런처 종료 ─────────────────────────────────────────────
@@ -402,24 +410,48 @@ async fn launcher_check_update() -> Result<self_updater::SelfUpdateCheck, String
 #[tauri::command]
 async fn launcher_apply_update(
     manifest: self_updater::LauncherManifest,
-    window: tauri::Window,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     use tauri::Emitter;
-    let win = window.clone();
+    let progress_app = app.clone();
     self_updater::download_and_apply(&manifest, move |bytes_done, total| {
-        let _ = win.emit(
+        let _ = progress_app.emit(
             "launcher_update_progress",
             serde_json::json!({ "bytesDone": bytes_done, "totalBytes": total }),
         );
     })
-    .await
+    .await?;
+    // updater.bat이 swap+restart 담당 — 백엔드가 직접 종료한다(창이 닫혀 있어도 종료되도록).
+    // 짧은 지연은 프론트가 "적용 중"을 그릴 시간.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        app.exit(0);
+    });
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 두 번째 실행은 broker(파이프 서버)를 새로 띄우지 않고, 기존 런처에 창 표시를
+    // 요청한 뒤 종료한다.
+    let after_update = std::env::args().any(|arg| arg == self_updater::AFTER_UPDATE_ARG);
+    let instance = if after_update {
+        tray::InstanceGuard::acquire_waiting(std::time::Duration::from_secs(20))
+    } else {
+        tray::InstanceGuard::acquire()
+    };
+    let Some(instance) = instance else {
+        tray::InstanceGuard::signal_existing();
+        return;
+    };
     let stage0 = multiclient::Stage0State::from_environment();
     tauri::Builder::default()
         .manage(stage0)
+        .setup(move |app| {
+            tray::build(app.handle())?;
+            instance.listen(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             open_external,
             launcher_init,
@@ -462,6 +494,13 @@ pub fn run() {
             launcher_apply_update,
             quit_launcher,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                if tray::should_prevent_exit(code) {
+                    api.prevent_exit();
+                }
+            }
+        });
 }

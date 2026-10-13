@@ -17,6 +17,10 @@ const MANIFEST_URLS: &[&str] = &[
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// updater.bat이 새 런처를 띄울 때 붙이는 인자. 이 인자로 시작하면 이전 런처가
+/// 단일 실행 이벤트를 놓을 때까지 기다린다(lib.rs run()).
+pub const AFTER_UPDATE_ARG: &str = "--after-update";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LauncherManifest {
     pub version: String,
@@ -131,7 +135,7 @@ where
         ));
     }
 
-    // 3) updater.bat 생성 + 실행, 런처 자기 종료는 호출자(lib.rs)가 처리
+    // 3) updater.bat 생성 + 실행, 런처 자기 종료는 호출자(lib.rs 백엔드)가 처리
     let current_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
     let bat = temp_dir.join("ggolauncher_updater.bat");
     write_updater_bat(&bat, &new_exe, &current_exe)?;
@@ -155,9 +159,12 @@ fn write_updater_bat(
     let script = format!(
         "@echo off\r\n\
          setlocal EnableExtensions EnableDelayedExpansion\r\n\
+         rem System32 first: Git/Unix tools on PATH would shadow the Windows ones\r\n\
+         rem Delays use ping: timeout.exe exits at once without a console (DETACHED_PROCESS)\r\n\
+         set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%PATH%\"\r\n\
          rem GGO Launcher 자기 업데이트 헬퍼\r\n\
-         rem 1. 런처 종료될 시간 확보\r\n\
-         timeout /t 2 /nobreak >nul\r\n\
+         rem 1. 런처 종료될 시간 확보 (~2s)\r\n\
+         ping -n 3 127.0.0.1 >nul\r\n\
          rem 2. 기존 exe → .old 로 rename (사용 중이면 retry)\r\n\
          if exist \"{old}\" del /f /q \"{old}\" >nul 2>&1\r\n\
          set RETRY=0\r\n\
@@ -167,7 +174,7 @@ fn write_updater_bat(
              if exist \"{cur}\" (\r\n\
                  set /a RETRY+=1\r\n\
                  if !RETRY! lss 10 (\r\n\
-                     timeout /t 1 /nobreak >nul\r\n\
+                     ping -n 2 127.0.0.1 >nul\r\n\
                      goto retry_rename\r\n\
                  ) else (\r\n\
                      echo [updater] 기존 exe rename 실패 - 수동 종료 후 재시도 필요\r\n\
@@ -187,7 +194,8 @@ fn write_updater_bat(
          rem 4. 이전 버전 삭제 (실패해도 무시)\r\n\
          if exist \"{old}\" del /f /q \"{old}\" >nul 2>&1\r\n\
          rem 5. 새 런처 실행\r\n\
-         start \"\" \"{cur}\"\r\n\
+         rem    --after-update: waits for the old launcher's single-instance event\r\n\
+         start \"\" \"{cur}\" {after_update_arg}\r\n\
          rem 6. 자기 삭제\r\n\
          (goto) 2>nul & del \"%~f0\"\r\n",
         cur = current_exe.display(),
@@ -197,6 +205,7 @@ fn write_updater_bat(
             .unwrap_or("GGOLauncher.exe"),
         new = new_exe.display(),
         old = old_exe,
+        after_update_arg = AFTER_UPDATE_ARG,
     );
     std::fs::write(bat, script).map_err(|e| format!("bat 생성 실패: {e}"))
 }
