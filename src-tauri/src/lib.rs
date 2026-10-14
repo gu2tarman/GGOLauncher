@@ -8,6 +8,8 @@ mod paths;
 mod plugins;
 mod profile;
 mod profile_import;
+#[cfg(all(test, windows))]
+mod restart_rig;
 mod self_updater;
 mod settings;
 mod sidebar;

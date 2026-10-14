@@ -145,6 +145,7 @@ pub struct BrokerWindowTarget {
 
 #[derive(Debug, Clone)]
 struct ExpectedSession {
+    restart_program: Option<(std::path::PathBuf, std::path::PathBuf)>,
     profile_id: String,
     account_id: String,
     hud_leader: bool,
@@ -170,6 +171,8 @@ struct ExpectedSession {
 }
 
 struct BrokerShared {
+    pipe_name: String,
+    registry: Arc<Mutex<super::session::SessionRegistry>>,
     broker_instance_id: String,
     sessions: Mutex<HashMap<String, ExpectedSession>>,
     next_connection_id: AtomicU64,
@@ -181,6 +184,22 @@ pub struct BrokerServer {
 }
 
 impl BrokerServer {
+    #[cfg(test)]
+    pub(crate) fn rig_reject_restart(&self, account_id: &str) {
+        let mut sessions = self.shared.sessions.lock().unwrap();
+        let session = sessions.values_mut().find(|s| s.account_id == account_id).unwrap();
+        session.restart_program.as_mut().unwrap().0.set_file_name("missing-restart-test.exe");
+    }
+    #[cfg(test)]
+    pub(crate) fn rig_party_status(&self) -> Value {
+        let sessions = self.shared.sessions.lock().unwrap();
+        let rows: Vec<Value> = sessions.iter().map(|(id, session)| json!({
+            "account_id":session.account_id, "pid":session.expected_pid,
+            "status":session.latest_status,
+            "members":collect_party_status_members(&sessions, id, Instant::now()).unwrap_or_default()
+        })).collect();
+        json!(rows)
+    }
     pub fn live_secondary_accounts(
         &self,
         profile_id: &str,
@@ -208,7 +227,7 @@ impl BrokerServer {
             .collect())
     }
 
-    pub fn start() -> Self {
+    pub fn start(registry: Arc<Mutex<super::session::SessionRegistry>>) -> Self {
         let broker_nonce = random_hex(16).unwrap_or_else(|_| {
             format!(
                 "{:x}{:x}",
@@ -218,6 +237,8 @@ impl BrokerServer {
         });
         let pipe_name = format!("ggo-launcher-{}-{broker_nonce}", std::process::id());
         let shared = Arc::new(BrokerShared {
+            pipe_name: pipe_name.clone(),
+            registry,
             broker_instance_id: random_hex(16).unwrap_or_else(|_| broker_nonce.clone()),
             sessions: Mutex::new(HashMap::new()),
             next_connection_id: AtomicU64::new(1),
@@ -257,6 +278,7 @@ impl BrokerServer {
         sessions.insert(
             launch_session_id.clone(),
             ExpectedSession {
+                restart_program: None,
                 profile_id: profile_id.to_string(),
                 account_id: account_id.to_string(),
                 hud_leader,
@@ -306,6 +328,22 @@ impl BrokerServer {
             .ok_or_else(|| "broker launch session was not prepared".to_string())?;
         session.expected_pid = Some(pid);
         session.expected_process_creation_time = process_creation_time;
+        Ok(())
+    }
+
+    pub fn configure_restart(
+        &self,
+        id: &str,
+        executable: &std::path::Path,
+        working_directory: &std::path::Path,
+    ) -> Result<(), String> {
+        let mut sessions = self
+            .shared
+            .sessions
+            .lock()
+            .map_err(|_| "broker session lock poisoned")?;
+        let session = sessions.get_mut(id).ok_or("unknown launch session")?;
+        session.restart_program = Some((executable.to_owned(), working_directory.to_owned()));
         Ok(())
     }
 
@@ -713,7 +751,8 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                     "apply_managed_tile.v1",
                     "client_status.v1",
                     "party_status.v1",
-                    "group_control.v1"
+                    "group_control.v1",
+                    "restart_client.v1"
                 ]
             }
         });
@@ -770,6 +809,9 @@ fn handle_client(handle_value: usize, shared: Arc<BrokerShared>) {
                         }
                         Some("group_control_request") => {
                             queue_group_control(&shared, launch_session_id, caller, &message)
+                        }
+                        Some("restart_client_request") => {
+                            restart_client(&shared, launch_session_id, caller, client_pid, &message)
                         }
                         Some("ping") => {
                             write_json_line(handle_value, &json!({ "type": "pong", "payload": {} }))
@@ -870,6 +912,119 @@ fn record_window_ready(
         generation,
         managed_tile_active
     );
+    Ok(())
+}
+
+fn parse_restart_arguments(message: &Value) -> Result<Vec<String>, String> {
+    let values = message
+        .get("payload")
+        .and_then(|p| p.get("arguments"))
+        .and_then(Value::as_array)
+        .filter(|v| !v.is_empty() && v.len() <= 256)
+        .ok_or("invalid restart arguments")?;
+    values
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .filter(|s| !s.contains('\0'))
+                .map(str::to_owned)
+                .ok_or_else(|| "invalid restart argument".to_string())
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn restart_client(
+    shared: &Arc<BrokerShared>,
+    id: &str,
+    caller: ConnectionIdentity,
+    client_pid: u32,
+    message: &Value,
+) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let result = (|| -> Result<(), String> {
+        let arguments = parse_restart_arguments(message)?;
+        let mut sessions = shared
+            .sessions
+            .lock()
+            .map_err(|_| "broker session lock poisoned")?;
+        let session = sessions.get_mut(id).ok_or("unknown launch session")?;
+        require_connection(session, caller)?;
+        if session.expected_pid != Some(client_pid)
+            || session.expected_process_creation_time
+                != Some(super::windows::query_process_creation_time(client_pid)?)
+        {
+            return Err("restart source process identity mismatch".to_string());
+        }
+        let (executable, directory) = session
+            .restart_program
+            .as_ref()
+            .ok_or("restart program is unavailable")?;
+        let token = random_hex(32)?;
+        // No shell, and the executable/cwd are pinned by the original launcher.
+        // Arguments come from CE's existing canonical restart argument builder.
+        let mut child = std::process::Command::new(executable)
+            .current_dir(directory)
+            .args(&arguments)
+            .creation_flags(0x0800_0000)
+            .env("GGO_BROKER_PIPE", &shared.pipe_name)
+            .env("GGO_LAUNCH_SESSION_ID", id)
+            .env("GGO_BOOTSTRAP_TOKEN", &token)
+            .env("GGO_PROFILE_ID", &session.profile_id)
+            .env("GGO_ACCOUNT_ID", &session.account_id)
+            .spawn()
+            .map_err(|e| format!("restart spawn failed: {e}"))?;
+        let pid = child.id();
+        let creation = match super::windows::query_process_creation_time(pid) {
+            Ok(value) => value,
+            Err(error) => {
+                let _ = child.kill();
+                return Err(error);
+            }
+        };
+        let mut registry = match shared.registry.lock() {
+            Ok(value) => value,
+            Err(_) => {
+                let _ = child.kill();
+                return Err("registry lock poisoned".to_string());
+            }
+        };
+        registry.replace_for_restart(
+            &session.profile_id,
+            &session.account_id,
+            client_pid,
+            child,
+            creation,
+        )?;
+        session.bootstrap_token = token;
+        session.expected_pid = Some(pid);
+        session.expected_process_creation_time = Some(creation);
+        session.connected = false;
+        session.window_ready = false;
+        session.managed_tile_active = false;
+        session.hwnd = None;
+        session.hwnd_generation = None;
+        session.connection_id = None;
+        session.pipe_handle = None;
+        session.latest_status = None;
+        session.last_status_received_at = None;
+        session.pending_group_control_result = None;
+        session.group_control_in_flight = false;
+        eprintln!(
+            "[ggo-broker] restarted account={} old_pid={} new_pid={}",
+            session.account_id, client_pid, pid
+        );
+        Ok(())
+    })();
+    if let Err(error) = result {
+        // Failure before replacement keeps the original process and retry flow.
+        eprintln!("[ggo-broker] restart rejected: {error}");
+        write_json_line(
+            caller.handle,
+            &json!({"type":"restart_client_result",
+            "correlation_id":message.get("message_id"), "payload":{"error":error}}),
+        )?;
+    }
     Ok(())
 }
 
@@ -1546,6 +1701,7 @@ mod tests {
         HashMap::from([(
             "session-a".to_string(),
             ExpectedSession {
+                restart_program: None,
                 profile_id: "profile-a".to_string(),
                 account_id: "account-a".to_string(),
                 hud_leader: true,
@@ -1653,6 +1809,22 @@ mod tests {
     }
 
     #[test]
+    fn restart_arguments_preserve_spaces_and_reject_malformed_values() {
+        assert_eq!(
+            parse_restart_arguments(
+                &json!({"payload":{"arguments":["-settings", "C:\\test folder\\settings.json"]}})
+            )
+            .unwrap(),
+            vec!["-settings", "C:\\test folder\\settings.json"]
+        );
+        assert!(parse_restart_arguments(&json!({"payload":{"arguments":[]}})).is_err());
+        assert!(parse_restart_arguments(&json!({"payload":{"arguments":[1]}})).is_err());
+        assert!(
+            parse_restart_arguments(&json!({"payload":{"arguments":["bad\u{0}value"]}})).is_err()
+        );
+    }
+
+    #[test]
     fn replaced_connection_cannot_update_status_or_issue_commands_even_with_reused_handle() {
         let current = ConnectionIdentity { id: 8, handle: 123 };
         let old = ConnectionIdentity { id: 7, handle: 123 };
@@ -1662,6 +1834,8 @@ mod tests {
         session.connection_id = Some(current.id);
         session.pipe_handle = Some(current.handle);
         let shared = Arc::new(BrokerShared {
+            pipe_name: "test-pipe".to_string(),
+            registry: Arc::new(Mutex::new(super::super::session::SessionRegistry::default())),
             broker_instance_id: "test".to_string(),
             sessions: Mutex::new(expected),
             next_connection_id: AtomicU64::new(9),
@@ -1856,6 +2030,8 @@ mod tests {
             leader.group_control_in_flight = true;
         }
         let shared = Arc::new(BrokerShared {
+            pipe_name: "test-pipe".to_string(),
+            registry: Arc::new(Mutex::new(super::super::session::SessionRegistry::default())),
             broker_instance_id: "test-broker".to_string(),
             sessions: Mutex::new(expected),
             next_connection_id: AtomicU64::new(1),
@@ -1900,6 +2076,8 @@ mod tests {
         let server = BrokerServer {
             pipe_name: "test-only".to_string(),
             shared: Arc::new(BrokerShared {
+                pipe_name: "test-pipe".to_string(),
+                registry: Arc::new(Mutex::new(super::super::session::SessionRegistry::default())),
                 broker_instance_id: "test-broker".to_string(),
                 sessions: Mutex::new(expected),
                 next_connection_id: AtomicU64::new(1),

@@ -112,6 +112,39 @@ impl Default for SessionRegistry {
 }
 
 impl SessionRegistry {
+    /// Replace the launcher-owned process atomically so MULTI cannot reserve
+    /// this account between the old process exiting and the new one starting.
+    pub(super) fn replace_for_restart(
+        &mut self,
+        profile_id: &str,
+        account_id: &str,
+        old_pid: u32,
+        mut child: Child,
+        creation_time: u64,
+    ) -> Result<(), String> {
+        let entry = self.active.values_mut().find(|entry| {
+            entry.profile_id == profile_id && entry.account_id == account_id && entry.pid == old_pid
+        });
+        let Some(entry) = entry else {
+            let _ = child.kill();
+            return Err("restart source is no longer registered".to_string());
+        };
+        // The request is sent only after CE has saved its settings. Terminate
+        // only our owned old Child; a lost reply must never leave two clients.
+        if let Err(error) = entry.child.kill() {
+            if !matches!(entry.child.try_wait(), Ok(Some(_))) {
+                let _ = child.kill();
+                return Err(format!("could not replace the old client: {error}"));
+            }
+        }
+        let _ = entry.child.wait();
+        entry.pid = child.id();
+        entry.child = child;
+        entry.process_creation_time_filetime_100ns = Some(creation_time);
+        entry.process_creation_time_error = None;
+        entry.launcher_observed_spawn_time_unix_ms = unix_time_ms();
+        Ok(())
+    }
     pub fn reserve_group_accounts(
         &mut self,
         profile_id: &str,
@@ -504,6 +537,46 @@ mod tests {
             .any(|warning| warning.code == "duplicate_account"
                 && warning.runtime_session_ids == vec![first, second]));
 
+        registry.kill_all_for_test();
+    }
+
+    #[test]
+    fn restart_replacement_keeps_account_occupied_and_tracks_only_successor() {
+        let mut registry = SessionRegistry::default();
+        let original = spawn_sleeper();
+        let old_pid = original.id();
+        registry
+            .register("profile-a", "account-a", original, unix_time_ms())
+            .unwrap();
+        let successor = spawn_sleeper();
+        let new_pid = successor.id();
+        registry
+            .replace_for_restart("profile-a", "account-a", old_pid, successor, 123)
+            .unwrap();
+        let accounts = vec!["account-a".to_string()];
+        assert!(registry
+            .reserve_missing_accounts("profile-a", &accounts)
+            .unwrap()
+            .is_empty());
+        assert_eq!(registry.account_states("profile-a", &accounts).active, 1);
+        let snapshot = registry.snapshot();
+        assert_eq!(snapshot.active_sessions.len(), 1);
+        assert_eq!(snapshot.active_sessions[0].pid, new_pid);
+        registry.kill_all_for_test();
+    }
+
+    #[test]
+    fn restart_cannot_replace_a_different_account_or_process() {
+        let mut registry = SessionRegistry::default();
+        let original = spawn_sleeper();
+        let old_pid = original.id();
+        registry
+            .register("profile-a", "account-a", original, unix_time_ms())
+            .unwrap();
+        assert!(registry
+            .replace_for_restart("profile-a", "other", old_pid, spawn_sleeper(), 123)
+            .is_err());
+        assert_eq!(registry.snapshot().active_sessions[0].pid, old_pid);
         registry.kill_all_for_test();
     }
 

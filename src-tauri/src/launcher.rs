@@ -309,6 +309,7 @@ pub async fn launch_multi(
                 return Err(format!("CE IPC 세션 준비 실패: {error}"));
             }
         };
+        stage0.configure_broker_restart(&bootstrap, &cuo_exe, &cuo_dir)?;
         let args = build_cuo_args(&profile, &plugin.path, Some(account), *managed_tile);
         let outcome = match spawn_hidden(&cuo_exe, &cuo_dir, &args, Some(&bootstrap)) {
             Ok(outcome) => outcome,

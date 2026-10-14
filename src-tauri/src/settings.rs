@@ -58,6 +58,10 @@ fn default_lang() -> String {
 
 /// settings.json 절대 경로 (디렉터리 없으면 생성).
 pub fn settings_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    if let Ok(path) = std::env::var("GGO_RESTART_RIG_SETTINGS") {
+        return Ok(PathBuf::from(path));
+    }
     let base = dirs::data_dir().ok_or_else(|| "data_dir 없음".to_string())?;
     let dir = base.join("GGOLauncher");
     fs::create_dir_all(&dir).map_err(|e| format!("디렉터리 생성 실패: {e}"))?;

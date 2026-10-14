@@ -12,7 +12,7 @@ use session::{
 };
 use std::collections::HashMap;
 use std::process::Child;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 pub(crate) use windows::{
     close_broker_window, minimize_broker_window, raise_broker_window, restore_broker_window,
     WindowControlObservation,
@@ -26,7 +26,7 @@ pub const STAGE0_ENV_VAR: &str = "GGO_MULTICLIENT_STAGE0";
 pub struct Stage0State {
     enabled: bool,
     broker: broker::BrokerServer,
-    registry: Mutex<SessionRegistry>,
+    registry: Arc<Mutex<SessionRegistry>>,
     window_test_placements: Mutex<HashMap<RuntimeSessionId, SavedWindowPlacement>>,
 }
 
@@ -99,6 +99,19 @@ pub struct Stage0Diagnostics {
 }
 
 impl Stage0State {
+    #[cfg(test)]
+    pub(crate) fn rig_reject_restart(&self, account_id: &str) {
+        self.broker.rig_reject_restart(account_id);
+    }
+    #[cfg(test)]
+    pub(crate) fn rig_party_status(&self) -> serde_json::Value {
+        self.broker.rig_party_status()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rig_kill_clients(&self) {
+        self.registry.lock().unwrap().kill_all_for_test();
+    }
     pub fn from_environment() -> Self {
         Self::new(stage0_enabled_from_value(
             std::env::var(STAGE0_ENV_VAR).ok().as_deref(),
@@ -106,10 +119,11 @@ impl Stage0State {
     }
 
     fn new(enabled: bool) -> Self {
+        let registry = Arc::new(Mutex::new(SessionRegistry::default()));
         Self {
             enabled,
-            broker: broker::BrokerServer::start(),
-            registry: Mutex::new(SessionRegistry::default()),
+            broker: broker::BrokerServer::start(Arc::clone(&registry)),
+            registry,
             window_test_placements: Mutex::new(HashMap::new()),
         }
     }
@@ -166,6 +180,16 @@ impl Stage0State {
         let creation_time = windows::query_process_creation_time(pid)?;
         self.broker
             .bind_process(&bootstrap.launch_session_id, pid, Some(creation_time))
+    }
+
+    pub fn configure_broker_restart(
+        &self,
+        bootstrap: &broker::BrokerBootstrap,
+        executable: &std::path::Path,
+        working_directory: &std::path::Path,
+    ) -> Result<(), String> {
+        self.broker
+            .configure_restart(&bootstrap.launch_session_id, executable, working_directory)
     }
 
     pub fn cancel_broker_session(&self, launch_session_id: &str) {
