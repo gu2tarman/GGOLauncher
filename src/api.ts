@@ -26,6 +26,7 @@ export const api = {
   profileImportScan: (request: ImportRequest) => invoke<ImportScan>("profile_import_scan", { request }),
   profileImportPreview: (request: ImportRequest) => invoke<ImportPreview>("profile_import_preview", { request }),
   profileImportApply: (request: ImportRequest, fingerprint: string) => invoke<ImportResult>("profile_import_apply", { request, fingerprint }),
+  profileImportOpenBackup: (path: string) => invoke<void>("profile_import_open_backup", { path }),
   openExternal: (url: string) => invoke<void>("open_external", { url }),
 
   launcherInit: () => invoke<Settings>("launcher_init"),

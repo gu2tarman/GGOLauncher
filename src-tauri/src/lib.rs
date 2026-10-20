@@ -200,6 +200,11 @@ async fn profile_import_apply(
 }
 
 #[tauri::command]
+fn profile_import_open_backup(path: String) -> Result<(), String> {
+    profile_import::open_backup(&path)
+}
+
+#[tauri::command]
 async fn client_select_directory(start_dir: Option<String>) -> Option<String> {
     paths::pick_folder(start_dir, "UO 클라이언트 폴더 선택").await
 }
@@ -471,6 +476,7 @@ pub fn run() {
             profile_import_scan,
             profile_import_preview,
             profile_import_apply,
+            profile_import_open_backup,
             client_select_directory,
             cuo_select_directory,
             cuo_launch,

@@ -12,6 +12,15 @@ const labels: Record<string, string> = {
   Macros: "매크로", Hotkeys: "핫키", General: "일반 설정", Options: "옵션",
 };
 
+const dirOf = (path: string) => path.replace(/[\\/][^\\/]+$/, "");
+const isKindPlugin = (path: string, kind: ImportRequest["kind"]) =>
+  path.toLowerCase().endsWith(kind === "re" ? "razorenhanced.exe" : "classicassist.dll");
+/** 게임이 실제로 실행하는 보조 프로그램 폴더 = 플러그인 패널에서 선택(enabled)된 것 */
+const activePluginDir = (settings: Settings, kind: ImportRequest["kind"]) => {
+  const plugin = settings.plugins.find(p => p.enabled && isKindPlugin(p.path, kind));
+  return plugin ? dirOf(plugin.path) : null;
+};
+
 export function ProfileImportModal({ settings, initialProfileId, onClose }: {
   settings: Settings; initialProfileId: string | null; onClose: () => void;
 }) {
@@ -29,8 +38,10 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
 
   const targets = useMemo(() => request.kind === "cuo"
     ? settings.profiles.filter(p => p.cuo_path).map(p => ({ label: p.name, path: p.cuo_path! }))
-    : settings.plugins.filter(p => p.path.toLowerCase().endsWith(request.kind === "re" ? "razorenhanced.exe" : "classicassist.dll"))
-      .map(p => ({ label: p.display_name || kindNames[request.kind], path: p.path.replace(/[\\/][^\\/]+$/, "") })), [settings, request.kind]);
+    : settings.plugins.filter(p => isKindPlugin(p.path, request.kind))
+      .map(p => ({ label: (p.display_name || kindNames[request.kind]) + (p.enabled ? " (사용 중)" : ""), path: dirOf(p.path) })), [settings, request.kind]);
+  const activeDir = request.kind === "cuo" ? null : activePluginDir(settings, request.kind);
+  const notActiveTarget = !!activeDir && request.destination.trim().toLowerCase() !== activeDir.toLowerCase();
   const groups = useMemo(() => {
     const map = new Map<string, ImportScan["items"]>();
     for (const item of scan?.items ?? []) {
@@ -43,7 +54,6 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
   /** 고른 종류에 맞는 자동 탐색 후보 (대상 폴더 제외). */
   const sources = useMemo(() => {
     if (!discovery) return [];
-    const dirOf = (path: string) => path.replace(/[\\/][^\\/]+$/, "");
     const list = request.kind === "cuo"
       ? discovery.cuo_folders.map(c => ({ path: c.path, label: c.ggoce ? "GGO CE" : "원본 ClassicUO" }))
       : discovery.plugins.filter(p => p.kind === request.kind).map(p => ({ path: dirOf(p.path), label: kindNames[request.kind] }));
@@ -56,8 +66,9 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
     setScan(null); setPreview(null); setResult(null); setError(""); setFilter(""); setClosed(false);
   };
   const selectKind = (kind: ImportRequest["kind"]) => {
-    const plugin = settings.plugins.find(p => p.path.toLowerCase().endsWith(kind === "re" ? "razorenhanced.exe" : "classicassist.dll"));
-    reset({ kind, source: "", destination: kind === "cuo" ? defaultCuo : plugin?.path.replace(/[\\/][^\\/]+$/, "") ?? "" });
+    // 기본 대상 = 게임이 실제로 실행하는 보조 프로그램(플러그인 패널에서 선택된 것)
+    const plugin = settings.plugins.find(p => isKindPlugin(p.path, kind));
+    reset({ kind, source: "", destination: kind === "cuo" ? defaultCuo : activePluginDir(settings, kind) ?? (plugin ? dirOf(plugin.path) : "") });
   };
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError("");
@@ -73,28 +84,28 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
 
   return <Modal open onClose={() => { if (!busy) onClose(); }} title="프로필 가져오기" width={900}>
     <div className="profile-import">
-      <p className="import-intro">기존 설정을 골라 가져와 CE에서 이어서 사용하세요. 원본 설치 폴더는 유지됩니다.</p>
+      <p className="import-intro">예전 설치의 설정을 골라 지금 쓰는 설치로 가져옵니다. 가져올 폴더는 변경하지 않습니다.</p>
       <details className="import-source" open={!scan}>
-      <summary>원본 및 대상 폴더 · {kindNames[request.kind]}</summary>
+      <summary>가져올 폴더 → 덮어쓸 폴더 · {kindNames[request.kind]}</summary>
       <fieldset disabled={busy || !!result} className="import-fields">
         <label>가져올 프로그램
           <select className="text-input" value={request.kind} onChange={e => selectKind(e.target.value as ImportRequest["kind"])}>
             {Object.entries(kindNames).map(([value,label]) => <option value={value} key={value}>{label}</option>)}
           </select>
         </label>
-        <label>원본 설치 폴더
-          {sources.length > 0 && <select className="text-input" aria-label="자동으로 찾은 원본 폴더" value={sources.some(c => c.path === request.source) ? request.source : ""} onChange={e => { if (e.target.value) reset({ source: e.target.value }); }}>
+        <label>① 가져올 폴더 (기존 설치 · 읽기만 하고 변경하지 않음)
+          {sources.length > 0 && <select className="text-input" aria-label="자동으로 찾은 가져올 폴더" value={sources.some(c => c.path === request.source) ? request.source : ""} onChange={e => { if (e.target.value) reset({ source: e.target.value }); }}>
             <option value="">이 PC에서 찾은 폴더 {sources.length}개 — 선택하거나 아래에 직접 지정</option>
             {sources.map(c => <option key={c.path} value={c.path}>{c.label} · {c.path}</option>)}
           </select>}
-          <div className="import-path"><input className="text-input" value={request.source} placeholder="기존 프로그램이 설치된 폴더" onChange={e => reset({ source: e.target.value })}/><button className="btn-action" onClick={() => pick("source")}>찾아보기</button></div>
+          <div className="import-path"><input className="text-input" value={request.source} placeholder="예전에 쓰던 프로그램이 설치된 폴더" onChange={e => reset({ source: e.target.value })}/><button className="btn-action" onClick={() => pick("source")}>찾아보기</button></div>
         </label>
-        <label>가져올 대상
+        <label>② 덮어쓸 폴더 (지금 게임에서 쓰는 설치)
           <select className="text-input" value={targets.some(t => t.path === request.destination) ? request.destination : ""} onChange={e => { if(e.target.value) reset({ destination: e.target.value }); }}>
-            <option value="">대상 폴더 직접 선택</option>
+            <option value="">덮어쓸 폴더 직접 선택</option>
             {targets.map((t,i) => <option key={i} value={t.path}>{t.label} · {t.path}</option>)}
           </select>
-          <div className="import-path"><input className="text-input" value={request.destination} placeholder="CE 또는 보조 프로그램 설치 폴더" onChange={e => reset({ destination: e.target.value })}/><button className="btn-action" onClick={() => pick("destination")}>찾아보기</button></div>
+          <div className="import-path"><input className="text-input" value={request.destination} placeholder="설정을 넣을 CE 또는 보조 프로그램 설치 폴더" onChange={e => reset({ destination: e.target.value })}/><button className="btn-action" onClick={() => pick("destination")}>찾아보기</button></div>
         </label>
         {request.kind !== "cuo" && <p className="import-hint">보조 프로그램 설정은 같은 설치 경로를 사용하는 모든 런처 프로필에서 공유됩니다.</p>}
         <button className="btn-primary" disabled={!request.source.trim() || !request.destination.trim()} onClick={() => run(async () => {
@@ -111,7 +122,7 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
           <button className="btn-action" onClick={() => toggle(groups.flatMap(([,items]) => items.map(i => i.id)), true)}>검색 결과 선택</button>
           <button className="btn-action" onClick={() => toggle(request.selected, false)}>선택 해제</button>
         </div>
-        {!scan.items.length && <p>지원하는 프로필을 찾지 못했습니다. 원본 설치 폴더와 저장 형식을 확인해주세요.</p>}
+        {!scan.items.length && <p>지원하는 프로필을 찾지 못했습니다. 가져올 폴더와 저장 형식을 확인해주세요.</p>}
         <div className="import-items">
           {groups.map(([group,items]) => <details key={group} open={groups.length <= 3 || !!filter}>
             <summary>{group} <span>{items.filter(i => request.selected.includes(i.id)).length} / {items.length}</span></summary>
@@ -123,26 +134,35 @@ export function ProfileImportModal({ settings, initialProfileId, onClose }: {
           </details>)}
         </div>
         <label className="import-check"><input type="checkbox" checked={request.replace} onChange={e => { setRequest(r => ({ ...r, replace: e.target.checked })); setPreview(null); }}/>
-          같은 이름의 기존 항목 교체 (자동 백업) — CA는 선택한 설정 항목만 교체</label>
+          덮어쓸 폴더에 같은 이름이 있으면 교체 (교체 전 자동 백업) — CA는 선택한 설정 항목만 교체</label>
         <button className="btn-primary" disabled={!request.selected.length} onClick={() => run(async () => { setPreview(null); setClosed(false); setPreview(await api.profileImportPreview(request)); })}>가져오기 미리보기</button>
       </fieldset>}
 
       {preview && !result && <div className="import-preview">
-        <strong>반영될 파일 · {preview.changes.length}개</strong>
+        <div className="import-route">
+          <b>① 가져올 폴더 (변경 안 함)</b><span>{preview.source}</span>
+          <b>② 덮어쓸 폴더 (아래 파일이 바뀜)</b><span className="import-route-dest">{preview.destination}</span>
+        </div>
+        {notActiveTarget && <p className="import-warn">덮어쓸 폴더가 플러그인 패널에서 사용 중인 {kindNames[request.kind]}({activeDir})가 아닙니다. 게임에서는 사용 중인 쪽의 설정만 적용됩니다.</p>}
+        <strong>처리 예정 파일 · {preview.changes.length}개</strong>
         <div className="import-change-list">{preview.changes.map(change => <div className="import-change" key={change.path}><b>{change.action}</b><span>{change.path}</span></div>)}</div>
         <ul className="import-notes">{preview.notes.map((note,i) => <li key={i}>{note}</li>)}</ul>
-        <label className="import-check"><input type="checkbox" disabled={busy} checked={closed} onChange={e => setClosed(e.target.checked)}/> 게임과 RE·CA를 종료했고, 대상 폴더와 반영 항목을 확인했습니다.</label>
-        <button className="btn-primary" disabled={busy || !closed || !preview.changes.some(c => c.action === "새로 복사" || c.action === "백업 후 반영")} onClick={() => run(async () => setResult(await api.profileImportApply(request, preview.fingerprint)))}>선택 항목 가져오기</button>
+        <label className="import-check"><input type="checkbox" disabled={busy} checked={closed} onChange={e => setClosed(e.target.checked)}/> 게임과 RE·CA를 종료했고, 덮어쓸 폴더와 바뀌는 파일을 확인했습니다.</label>
+        <button className="btn-primary" disabled={busy || !closed || !preview.changes.some(c => c.action === "새로 복사" || c.action === "교체 (백업 후)")} onClick={() => run(async () => setResult(await api.profileImportApply(request, preview.fingerprint)))}>선택 항목 가져오기</button>
       </div>}
       {scan && !preview && !result && <ul className="import-notes">{scan.notes.map((note,i) => <li key={i}>{note}</li>)}</ul>}
       {busy && <p role="status">처리 중입니다…</p>}
       {error && <div className="import-error" role="alert">{error}</div>}
       {result && <div className="import-result" role="status">
-        <strong>가져오기 완료 · {result.copied}개 파일 반영 / {result.skipped}개 유지</strong>
+        <strong>가져오기 완료 · {result.copied}개 파일 바뀜 / {result.skipped}개 건너뜀 (이미 같거나 교체 안 함)</strong>
         <p>복사된 파일의 내용을 검증했습니다.</p>
-        <p>백업 및 복구 목록: <span className="import-backup-path">{result.backup}</span></p>
+        <p>가져오기 전 덮어쓸 폴더의 프로필 전체({result.snapshot_files}개 파일)를 백업했습니다: <span className="import-backup-path">{result.snapshot}</span></p>
+        <p style={{ fontSize: 12, opacity: .75, margin: 0 }}>변경된 파일 목록(manifest.json)과 덮어쓰기 전 파일(*.bak)도 같은 백업 폴더에 있습니다.</p>
         <p>{request.kind === "cuo" ? "같은 계정과 캐릭터로 CE에 접속해 설정을 확인해주세요." : "보조 프로그램을 시작한 뒤 가져온 프로필을 선택하고 핫키·스크립트 연결을 확인해주세요."}</p>
-        <button className="btn-action" onClick={() => reset({ selected: [] })}>다른 항목 가져오기</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn-action" onClick={() => run(() => api.profileImportOpenBackup(result.backup))}>백업 폴더 열기</button>
+          <button className="btn-action" onClick={() => reset({ selected: [] })}>다른 항목 가져오기</button>
+        </div>
       </div>}
     </div>
   </Modal>;

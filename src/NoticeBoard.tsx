@@ -32,6 +32,13 @@ type Props = {
 export function NoticeBoard({ title, items, loading, error, onRetry }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // 고정 공지를 맨 위로. 나머지는 원래(최신순) 순서 유지.
+  const ordered = useMemo(
+    () => (items ? [...items.filter((n) => n.pinned), ...items.filter((n) => !n.pinned)] : null),
+    [items]
+  );
+  const latestId = ordered?.find((n) => !n.pinned)?.id;
+
   useEffect(() => {
     setExpandedId((cur) =>
       cur && items?.some((item) => item.id === cur) ? cur : null
@@ -59,11 +66,11 @@ export function NoticeBoard({ title, items, loading, error, onRetry }: Props) {
         {!error && items?.length === 0 && (
           <div className="notice-placeholder">공지가 없습니다</div>
         )}
-        {items?.map((n, index) => (
+        {ordered?.map((n) => (
           <NoticeItem
             key={n.id}
             notice={n}
-            isLatest={index === 0}
+            isLatest={n.id === latestId}
             expanded={expandedId === n.id}
             onToggle={() =>
               setExpandedId((cur) => (cur === n.id ? null : n.id))
@@ -90,6 +97,8 @@ function NoticeItem({ notice, isLatest, expanded, onToggle }: ItemProps) {
 
   const actionLinks = useMemo(() => buildActionLinks(notice), [notice]);
   const displaySeverity = severityOf(notice, isLatest);
+  // 긴급 공지는 고정이어도 긴급 표시가 우선.
+  const pinned = !!notice.pinned && displaySeverity !== "urgent";
 
   const openNoticeUrl = (url: string) => {
     api.openExternal(url).catch(console.error);
@@ -107,7 +116,7 @@ function NoticeItem({ notice, isLatest, expanded, onToggle }: ItemProps) {
   };
 
   return (
-    <article className={`notice-item severity-${displaySeverity} ${expanded ? "is-expanded" : ""}`}>
+    <article className={`notice-item severity-${displaySeverity} ${pinned ? "is-pinned" : ""} ${expanded ? "is-expanded" : ""}`}>
       <button
         type="button"
         className="notice-item-head"
@@ -115,7 +124,7 @@ function NoticeItem({ notice, isLatest, expanded, onToggle }: ItemProps) {
         aria-expanded={expanded}
         title={notice.title}
       >
-        <span className="notice-badge">{labelOf(displaySeverity)}</span>
+        <span className="notice-badge">{pinned ? "고정" : labelOf(displaySeverity)}</span>
         <span className="notice-head-main">
           <span className="notice-title">{notice.title}</span>
           <span className="notice-date">{notice.date}</span>

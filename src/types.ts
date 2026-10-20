@@ -56,8 +56,15 @@ export interface ImportPreview {
   fingerprint: string;
   changes: Array<{ path: string; action: string; bytes: number }>;
   notes: string[];
+  source: string;
+  destination: string;
 }
-export interface ImportResult { copied: number; skipped: number; backup: string; notes: string[] }
+export interface ImportResult {
+  copied: number; skipped: number; backup: string;
+  /** 반영 직전 대상 프로필 폴더 전체 사본 */
+  snapshot: string; snapshot_files: number;
+  notes: string[];
+}
 
 export interface ServerConfig {
   address: string;
@@ -118,6 +125,8 @@ export interface Notice {
   url?: string | null;
   /** 선택: url 버튼에 표시할 짧은 라벨 */
   url_label?: string | null;
+  /** 선택: true면 목록 최상단 고정 */
+  pinned?: boolean;
 }
 
 export interface NoticeBoard {

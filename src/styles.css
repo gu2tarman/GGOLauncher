@@ -1397,6 +1397,8 @@ button:focus-visible,
   align-items: center;
   z-index: 1000;
   animation: fadeIn 0.12s ease-out;
+  /* body로 portal되므로 .app의 텍스트 섀도를 직접 지정 */
+  text-shadow: var(--tsh);
 }
 
 @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
@@ -1955,8 +1957,14 @@ select.text-input {
   background: rgba(70, 52, 16, 0.48);
 }
 
+.notice-item.is-pinned:not(.is-expanded) {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(16, 58, 54, 0.45);
+}
+
 .notice-item.severity-urgent.is-expanded { border-color: rgba(239, 68, 68, 0.35); }
 .notice-item.severity-event.is-expanded  { border-color: rgba(245, 158, 11, 0.32); }
+.notice-item.is-pinned.is-expanded       { border-color: rgba(45, 212, 191, 0.32); }
 
 /* 클릭 가능한 헤더 (button 태그) */
 .notice-item-head {
@@ -2033,6 +2041,11 @@ select.text-input {
 .severity-event .notice-badge {
   background: var(--warning);
   color: #1a0e00;
+}
+
+.is-pinned .notice-badge {
+  background: var(--accent-teal);
+  color: #04201d;
 }
 
 .notice-head-main {
@@ -2793,4 +2806,9 @@ select.text-input {
 .import-change span, .import-backup-path { overflow-wrap: anywhere; user-select: text; }
 .import-error { color: #ffb5aa; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #bf5555; border-radius: 6px; }
 .import-result { border: 1px solid #759b78; padding: 16px; border-radius: 8px; line-height: 1.6; }
+.import-route { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; }
+.import-route b { opacity: .75; font-weight: 700; }
+.import-route span { overflow-wrap: anywhere; user-select: text; }
+.import-route .import-route-dest { color: var(--accent-teal); font-weight: 700; }
+.import-warn { margin: 0; padding: 8px 12px; border: 1px solid #c9a24a; border-radius: 6px; background: #c9a24a1a; font-size: 13px; line-height: 1.6; }
 .import-fields > .btn-primary, .import-preview > .btn-primary { justify-self: start; }

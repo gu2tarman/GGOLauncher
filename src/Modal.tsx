@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type Props = {
   open: boolean;
@@ -55,7 +56,9 @@ export function Modal({
 
   if (!open) return null;
 
-  return (
+  // body로 portal — 패널 안에서 열려도 backdrop-filter/z-index 스태킹에
+  // 갇히지 않고 화면 전체를 덮는다.
+  return createPortal(
     <div className="modal-backdrop">
       <div
         className="modal-dialog"
@@ -72,6 +75,7 @@ export function Modal({
         </header>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

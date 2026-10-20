@@ -55,6 +55,9 @@ pub struct Preview {
     pub fingerprint: String,
     pub changes: Vec<Change>,
     pub notes: Vec<String>,
+    /// 원본/대상 설치 폴더 — 미리보기에서 덮어쓸 곳을 혼동하지 않도록 표시.
+    pub source: String,
+    pub destination: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,6 +65,9 @@ pub struct ImportResult {
     pub copied: usize,
     pub skipped: usize,
     pub backup: String,
+    /// 반영 직전 대상 프로필 폴더 전체 사본.
+    pub snapshot: String,
+    pub snapshot_files: usize,
     pub notes: Vec<String>,
 }
 
@@ -85,6 +91,8 @@ struct Write {
 struct Plan {
     preview: Preview,
     writes: Vec<Write>,
+    /// 대상 프로필 루트 — 첫 쓰기 전에 통째로 백업한다.
+    profiles: PathBuf,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -106,19 +114,24 @@ fn optional_json(path: &Path) -> Result<Value, String> {
     }
 }
 
+fn is_link(m: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        m.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        m.file_type().is_symlink()
+    }
+}
+
 // Check every component, including junctions on Windows, before following paths.
 fn no_links(path: &Path) -> Result<(), String> {
     for p in path.ancestors() {
         match fs::symlink_metadata(p) {
             Ok(m) => {
-                #[cfg(windows)]
-                let linked = {
-                    use std::os::windows::fs::MetadataExt;
-                    m.file_attributes() & 0x400 != 0
-                };
-                #[cfg(not(windows))]
-                let linked = m.file_type().is_symlink();
-                if linked {
+                if is_link(&m) {
                     return Err(format!(
                         "연결된 폴더/파일은 직접 경로로 선택해주세요: {}",
                         p.display()
@@ -220,7 +233,7 @@ fn paired(request: &Request) -> Result<(Roots, Roots), String> {
         for b in [&dst.install, &dst.profiles, &dst.resources] {
             if overlaps(a, b) {
                 return Err(
-                    "원본과 대상이 같거나 서로 포함된 폴더입니다. 별도 설치 폴더를 선택해주세요."
+                    "가져올 폴더와 덮어쓸 폴더가 같거나 서로 포함된 폴더입니다. 별도 설치 폴더를 선택해주세요."
                         .into(),
                 );
             }
@@ -460,7 +473,7 @@ fn script_references(value: &Value, out: &mut BTreeSet<String>) {
 }
 
 fn notes(kind: Kind) -> Vec<String> {
-    let mut out = vec!["원본은 유지됩니다. 같은 이름의 대상 파일은 기본적으로 건너뛰며, 교체를 선택하면 먼저 백업합니다.".into()];
+    let mut out = vec!["가져올 폴더는 변경하지 않습니다. 덮어쓸 폴더에 같은 이름의 파일이 있으면 기본적으로 건너뛰고, 교체를 켜면 먼저 백업합니다.".into()];
     match kind {
         Kind::Cuo => out.push("계정/서버/캐릭터 폴더 이름을 그대로 유지합니다. 런처의 접속 계정과 서버가 같아야 적용됩니다. 로그인 정보와 CE 버전 설정은 복사하지 않습니다.".into()),
         Kind::Re => out.push("새 RE 프로필에는 필수 GENERAL 설정과 프로필 등록을 함께 가져옵니다. 핫키와 스크립트 목록은 별도 선택 가능합니다. 스크립트 파일도 함께 선택해주세요.".into()),
@@ -547,7 +560,7 @@ fn plan(r: &Request) -> Result<Plan, String> {
         .iter()
         .any(|id| !all.iter().any(|c| c.item.id == *id))
     {
-        return Err("원본 항목이 변경되었습니다. 다시 검색해주세요.".into());
+        return Err("가져올 폴더의 항목이 변경되었습니다. 다시 검색해주세요.".into());
     }
     let chosen: Vec<&Candidate> = all
         .iter()
@@ -593,7 +606,7 @@ fn plan(r: &Request) -> Result<Plan, String> {
         let mut value = optional_json(&path)?;
         let obj = value
             .as_object_mut()
-            .ok_or("대상 CA 프로필 형식을 확인해주세요.")?;
+            .ok_or("덮어쓸 폴더의 CA 프로필 형식을 확인해주세요.")?;
         let source = read_json(&sections[0].source)?;
         let mut changed = false;
         for c in sections {
@@ -650,7 +663,7 @@ fn plan(r: &Request) -> Result<Plan, String> {
             json!([])
         };
         if !source.is_array() {
-            return Err("원본 RE 프로필 등록 목록 형식을 확인해주세요.".into());
+            return Err("가져올 폴더의 RE 프로필 등록 목록 형식을 확인해주세요.".into());
         }
         let mut target = if index_path.exists() {
             read_json(&index_path)?
@@ -659,24 +672,44 @@ fn plan(r: &Request) -> Result<Plan, String> {
         };
         let target = target
             .as_array_mut()
-            .ok_or("대상 RE 프로필 등록 목록 형식을 확인해주세요.")?;
+            .ok_or("덮어쓸 폴더의 RE 프로필 등록 목록 형식을 확인해주세요.")?;
         let mut added = false;
-        if !index_path.exists() && dst.profiles.exists() {
-            for entry in fs::read_dir(&dst.profiles).map_err(err)? {
-                let p = entry.map_err(err)?.path();
-                no_links(&p)?;
-                if p.is_dir() && p.join("RazorEnhanced.settings.GENERAL").is_file() {
-                    target.push(json!({"Name":p.file_name().unwrap().to_string_lossy(),"Last":target.is_empty(),"Players":[]}));
-                    added = true;
-                }
-            }
-        }
-        for name in &re_names {
-            if target.iter().any(|v| {
+        // RE lists only profiles named in NewProfiles; folders missing from it
+        // are invisible in RE. Register existing unlisted folders too. Selected
+        // profiles are added below so they keep the source character links.
+        let listed = |target: &Vec<Value>, name: &str| {
+            target.iter().any(|v| {
                 v["Name"]
                     .as_str()
                     .is_some_and(|n| n.eq_ignore_ascii_case(name))
-            }) {
+            })
+        };
+        if dst.profiles.exists() {
+            let mut unlisted = Vec::new();
+            for entry in fs::read_dir(&dst.profiles).map_err(err)? {
+                let p = entry.map_err(err)?.path();
+                no_links(&p)?;
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                if p.is_dir()
+                    && p.join("RazorEnhanced.settings.GENERAL").is_file()
+                    && !listed(target, &name)
+                    && !re_names.iter().any(|n| n.eq_ignore_ascii_case(&name))
+                {
+                    target.push(json!({"Name":name,"Last":target.is_empty(),"Players":[]}));
+                    unlisted.push(name);
+                    added = true;
+                }
+            }
+            if index_path.exists() && !unlisted.is_empty() {
+                extra_notes.insert(format!(
+                    "RE 목록에 없어 보이지 않던 기존 프로필 {}개를 함께 등록합니다: {}",
+                    unlisted.len(),
+                    unlisted.join(", ")
+                ));
+            }
+        }
+        for name in &re_names {
+            if listed(target, name) {
                 continue;
             }
             let mut incoming = source
@@ -737,11 +770,11 @@ fn plan(r: &Request) -> Result<Plan, String> {
                 .file_name()
                 .is_some_and(|n| n == "RazorEnhanced.NewProfiles");
         let action = if before.as_ref() == Some(&bytes) {
-            "동일 · 건너뜀"
+            "이미 같음 · 건너뜀"
         } else if before.is_some() && !r.replace && !merge {
-            "기존 유지"
+            "교체 안 함 (교체 옵션 꺼짐)"
         } else if before.is_some() {
-            "백업 후 반영"
+            "교체 (백업 후)"
         } else {
             "새로 복사"
         };
@@ -750,7 +783,7 @@ fn plan(r: &Request) -> Result<Plan, String> {
             action: action.into(),
             bytes: bytes.len(),
         });
-        if action == "백업 후 반영" || action == "새로 복사" {
+        if action == "교체 (백업 후)" || action == "새로 복사" {
             writes.push(Write {
                 path,
                 bytes,
@@ -765,9 +798,52 @@ fn plan(r: &Request) -> Result<Plan, String> {
             fingerprint: format!("{:x}", digest.finalize()),
             changes,
             notes,
+            source: display_path(&src.install),
+            destination: display_path(&dst.install),
         },
         writes,
+        profiles: dst.profiles,
     })
+}
+
+/// Copy a whole folder tree, skipping links/junctions. Returns copied file count.
+fn snapshot(dir: &Path, out: &Path) -> Result<usize, String> {
+    fs::create_dir_all(out).map_err(err)?;
+    let mut count = 0;
+    for entry in fs::read_dir(dir).map_err(err)? {
+        let entry = entry.map_err(err)?;
+        let path = entry.path();
+        let meta = fs::symlink_metadata(&path).map_err(err)?;
+        if is_link(&meta) {
+            continue;
+        }
+        let target = out.join(entry.file_name());
+        if meta.is_dir() {
+            count += snapshot(&path, &target)?;
+        } else if meta.is_file() {
+            fs::copy(&path, &target).map_err(|e| format!("{}: {e}", path.display()))?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+/// Open an import backup folder in Explorer — only inside the launcher's backup root.
+pub fn open_backup(path: &str) -> Result<(), String> {
+    let root = dirs::data_dir()
+        .ok_or("백업 폴더를 찾지 못했습니다.")?
+        .join("GGOLauncher")
+        .join("import-backups");
+    let target = fs::canonicalize(path).map_err(err)?;
+    let root = fs::canonicalize(&root).map_err(err)?;
+    if !target.starts_with(&root) || !target.is_dir() {
+        return Err("가져오기 백업 폴더만 열 수 있습니다.".into());
+    }
+    std::process::Command::new("explorer.exe")
+        .arg(display_path(&target))
+        .spawn()
+        .map(|_| ())
+        .map_err(err)
 }
 
 pub fn preview(r: &Request) -> Result<Preview, String> {
@@ -782,7 +858,7 @@ pub fn apply(r: &Request, fingerprint: &str) -> Result<ImportResult, String> {
     let plan = plan(r)?;
     if plan.preview.fingerprint != fingerprint {
         return Err(
-            "미리보기 이후 원본 또는 대상이 변경되었습니다. 미리보기를 다시 확인해주세요.".into(),
+            "미리보기 이후 가져올 폴더 또는 덮어쓸 폴더가 변경되었습니다. 미리보기를 다시 확인해주세요.".into(),
         );
     }
     let root = dirs::data_dir()
@@ -809,13 +885,23 @@ fn execute_with_hook(
         .as_nanos();
     let backup = backup_root.join(format!("import-{stamp}"));
     fs::create_dir(&backup).map_err(err)?;
+    // Full copy of the destination profiles before anything is written, so a
+    // run can always be undone as a whole (not just the files it touched).
+    let snapshot_dir = backup.join("profiles-before");
+    let snapshot_files = if plan.profiles.is_dir() {
+        no_links(&plan.profiles)?;
+        snapshot(&plan.profiles, &snapshot_dir)
+            .map_err(|e| format!("덮어쓸 폴더의 프로필 전체 백업에 실패해 가져오기를 중단했습니다: {e}"))?
+    } else {
+        0
+    };
     // Back up every overwritten file and persist the recovery map before the
     // first destination write. Failures restore all touched files.
     let mut manifest = Vec::new();
     for (i, w) in plan.writes.iter().enumerate() {
         no_links(&w.path)?;
         if read_before(&w.path)? != w.before {
-            return Err("대상 파일이 변경되었습니다. 미리보기를 다시 확인해주세요.".into());
+            return Err("덮어쓸 폴더의 파일이 변경되었습니다. 미리보기를 다시 확인해주세요.".into());
         }
         if let Some(b) = &w.before {
             fs::write(backup.join(format!("{i}.bak")), b).map_err(err)?;
@@ -830,9 +916,9 @@ fn execute_with_hook(
             before_write(i)?;
             no_links(&w.path)?;
             if read_before(&w.path)? != w.before {
-                return Err(format!("가져오기 중 대상이 변경됨: {}", w.path.display()));
+                return Err(format!("가져오기 중 덮어쓸 폴더의 파일이 변경됨: {}", w.path.display()));
             }
-            fs::create_dir_all(w.path.parent().ok_or("대상 경로 오류")?).map_err(err)?;
+            fs::create_dir_all(w.path.parent().ok_or("덮어쓸 경로 오류")?).map_err(err)?;
             touched.push(i);
             fs::copy(backup.join(format!("{i}.new")), &w.path).map_err(err)?;
             if fs::read(&w.path).map_err(err)? != w.bytes {
@@ -873,6 +959,8 @@ fn execute_with_hook(
         copied: plan.writes.len(),
         skipped: plan.preview.changes.len() - plan.writes.len(),
         backup: display_path(&backup),
+        snapshot: display_path(&snapshot_dir),
+        snapshot_files,
         notes: plan.preview.notes,
     })
 }
@@ -1250,6 +1338,44 @@ mod tests {
         );
         assert!(scan(&f.request(Kind::Re, &[], false)).is_err());
         fs::remove_dir(f.src.join("Scripts/link")).unwrap();
+    }
+
+    #[test]
+    fn whole_destination_profiles_are_backed_up_before_writing() {
+        let f = Fixture::new(Kind::Re);
+        f.source("Profiles/a/RazorEnhanced.settings.GENERAL", "[1]");
+        f.dest("Profiles/a/RazorEnhanced.settings.GENERAL", "[0]");
+        f.dest("Profiles/other/RazorEnhanced.settings.HOTKEYS", "[9]");
+        f.dest("Profiles/RazorEnhanced.NewProfiles", r#"[{"Name":"a","Last":true,"Players":[]}]"#);
+        let r = f.request(Kind::Re, &["profiles/a/RazorEnhanced.settings.GENERAL"], true);
+        let preview = preview(&r).unwrap();
+        assert_eq!(preview.destination, display_path(&fs::canonicalize(&f.dst).unwrap()));
+        let result = f.run(&r);
+        let snap = Path::new(&result.snapshot);
+        assert_eq!(result.snapshot_files, 3);
+        assert_eq!(fs::read_to_string(snap.join("a/RazorEnhanced.settings.GENERAL")).unwrap(), "[0]");
+        assert_eq!(fs::read_to_string(snap.join("other/RazorEnhanced.settings.HOTKEYS")).unwrap(), "[9]");
+        assert_eq!(fs::read_to_string(f.dst.join("Profiles/a/RazorEnhanced.settings.GENERAL")).unwrap(), "[1]");
+    }
+
+    #[test]
+    fn re_unlisted_destination_folders_are_registered() {
+        let f = Fixture::new(Kind::Re);
+        f.source("Profiles/new/RazorEnhanced.settings.GENERAL", "[]");
+        f.source("Profiles/RazorEnhanced.NewProfiles", r#"[{"Name":"new","Players":[{"PlayerName":"n","PlayerSerial":7}]}]"#);
+        f.dest("Profiles/default/RazorEnhanced.settings.GENERAL", "[]");
+        f.dest("Profiles/orphan/RazorEnhanced.settings.GENERAL", "[]");
+        f.dest("Profiles/new/RazorEnhanced.settings.GENERAL", "[]");
+        f.dest("Profiles/RazorEnhanced.NewProfiles", r#"[{"Name":"default","Last":true,"Players":[]}]"#);
+        let r = f.request(Kind::Re, &["profiles/new/RazorEnhanced.settings.GENERAL"], false);
+        assert!(preview(&r).unwrap().notes.iter().any(|n| n.contains("orphan")));
+        f.run(&r);
+        let index = read_json(&f.dst.join("Profiles/RazorEnhanced.NewProfiles")).unwrap();
+        let names: Vec<_> = index.as_array().unwrap().iter().map(|v| v["Name"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(names, ["default", "orphan", "new"]);
+        // the selected profile keeps its source character link
+        assert_eq!(index[2]["Players"][0]["PlayerSerial"], 7);
+        assert_eq!(index[0]["Last"], true);
     }
 
     #[test]

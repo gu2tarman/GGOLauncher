@@ -25,6 +25,10 @@ pub struct Notice {
     /// 선택: url 버튼에 표시할 짧은 라벨.
     #[serde(default)]
     pub url_label: Option<String>,
+    /// 선택: true면 날짜와 무관하게 목록 최상단에 고정.
+    /// severity에 새 값을 추가하면 구버전 런처가 notice.json 전체 파싱에 실패하므로 별도 필드로 둔다.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
