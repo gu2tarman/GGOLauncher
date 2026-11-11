@@ -413,7 +413,7 @@ async fn launcher_check_update() -> Result<self_updater::SelfUpdateCheck, String
     self_updater::check().await
 }
 
-/// 다운로드 + updater.bat 실행. 호출 직후 런처 자기 종료해야 batch가 이어받음.
+/// 다운로드 + exe 교체 + 새 런처 실행. 새 런처는 이 런처가 종료되길 기다린다.
 #[tauri::command]
 async fn launcher_apply_update(
     manifest: self_updater::LauncherManifest,
@@ -428,7 +428,7 @@ async fn launcher_apply_update(
         );
     })
     .await?;
-    // updater.bat이 swap+restart 담당 — 백엔드가 직접 종료한다(창이 닫혀 있어도 종료되도록).
+    // 새 런처는 이미 떠서 대기 중 — 백엔드가 직접 종료한다(창이 닫혀 있어도 종료되도록).
     // 짧은 지연은 프론트가 "적용 중"을 그릴 시간.
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -451,6 +451,7 @@ pub fn run() {
         tray::InstanceGuard::signal_existing();
         return;
     };
+    self_updater::cleanup_leftovers();
     let stage0 = multiclient::Stage0State::from_environment();
     tauri::Builder::default()
         .manage(stage0)

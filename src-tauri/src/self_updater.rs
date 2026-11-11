@@ -3,11 +3,16 @@
 //! 흐름:
 //!   1) ggoce-deploy의 launcher/manifest.json fetch
 //!   2) 현재 exe 버전과 비교
-//!   3) 새 exe를 %TEMP%\GGOLauncher.exe.new로 다운로드 + SHA256 검증
-//!   4) updater.bat 생성 + 실행 후 런처 종료 (batch가 swap 수행)
+//!   3) 새 exe를 런처와 같은 폴더의 GGOLauncher.new.exe로 다운로드 + SHA256 검증
+//!   4) 실행 중인 exe를 GGOLauncher.old.exe로 rename → 새 exe를 원래 이름으로 rename
+//!      (Windows는 실행 중인 exe의 rename을 허용한다)
+//!   5) 새 런처를 --after-update로 실행, 기존 런처는 호출자(lib.rs)가 종료
+//!   6) 새 런처가 시작하면서 남은 .old.exe / .new.exe를 지운다
+//!
+//! 임시 폴더·배치 스크립트는 쓰지 않는다(백신 휴리스틱 오탐 원인).
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 런처 manifest 후보 URL (순서대로 시도). raw 차단 환경 폴백용 jsDelivr 미러 포함.
 const MANIFEST_URLS: &[&str] = &[
@@ -17,7 +22,7 @@ const MANIFEST_URLS: &[&str] = &[
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// updater.bat이 새 런처를 띄울 때 붙이는 인자. 이 인자로 시작하면 이전 런처가
+/// 업데이트 직후 새 런처를 띄울 때 붙이는 인자. 이 인자로 시작하면 이전 런처가
 /// 단일 실행 이벤트를 놓을 때까지 기다린다(lib.rs run()).
 pub const AFTER_UPDATE_ARG: &str = "--after-update";
 
@@ -82,9 +87,10 @@ where
         return Err("런처 manifest url은 https://여야 합니다".into());
     }
 
-    // 1) 임시 위치로 다운로드
-    let temp_dir = std::env::temp_dir();
-    let new_exe = temp_dir.join("GGOLauncher.exe.new");
+    // 1) 런처와 같은 폴더로 다운로드
+    let current_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let new_exe = sibling(&current_exe, "new");
+    let old_exe = sibling(&current_exe, "old");
     if new_exe.exists() {
         std::fs::remove_file(&new_exe).ok();
     }
@@ -110,7 +116,7 @@ where
 
     let mut file = tokio::fs::File::create(&new_exe)
         .await
-        .map_err(|e| format!("임시 파일 생성 실패: {e}"))?;
+        .map_err(|e| format!("업데이트 파일 생성 실패 ({}): {e}", new_exe.display()))?;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| format!("스트림 읽기 실패: {e}"))?;
@@ -135,99 +141,76 @@ where
         ));
     }
 
-    // 3) updater.bat 생성 + 실행, 런처 자기 종료는 호출자(lib.rs 백엔드)가 처리
-    let current_exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
-    let bat = temp_dir.join("ggolauncher_updater.bat");
-    write_updater_bat(&bat, &new_exe, &current_exe)?;
+    // 3) 교체 + 새 런처 실행. 런처 자기 종료는 호출자(lib.rs 백엔드)가 처리
+    swap_in(&current_exe, &new_exe, &old_exe)?;
+    let mut cmd = std::process::Command::new(&current_exe);
+    cmd.arg(AFTER_UPDATE_ARG);
+    if let Some(dir) = current_exe.parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("업데이트는 적용됐지만 새 런처 실행 실패 - 런처를 다시 실행해주세요: {e}"))
+}
 
-    spawn_bat(&bat)?;
+/// `GGOLauncher.exe` → `GGOLauncher.<tag>.exe` (같은 폴더).
+fn sibling(exe: &Path, tag: &str) -> PathBuf {
+    let stem = exe
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("GGOLauncher");
+    exe.with_file_name(format!("{stem}.{tag}.exe"))
+}
+
+/// rename 재시도(백신 검사 등으로 잠깐 잠긴 경우 대비, 최대 ~2초).
+fn rename_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut last = None;
+    for attempt in 0..10 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.unwrap())
+}
+
+/// 현재 exe를 old로 치우고 new를 그 자리에 둔다. 실패하면 원래대로 되돌린다.
+fn swap_in(current: &Path, new: &Path, old: &Path) -> Result<(), String> {
+    if old.exists() {
+        std::fs::remove_file(old).ok();
+    }
+    rename_retry(current, old).map_err(|e| format!("기존 런처 이름 변경 실패: {e}"))?;
+    if let Err(e) = rename_retry(new, current) {
+        let _ = std::fs::rename(old, current);
+        return Err(format!("새 런처 교체 실패 - 이전 버전을 유지합니다: {e}"));
+    }
     Ok(())
 }
 
-fn write_updater_bat(
-    bat: &PathBuf,
-    new_exe: &PathBuf,
-    current_exe: &PathBuf,
-) -> Result<(), String> {
-    // CRLF + ASCII only. EnableDelayedExpansion 필수(!RETRY! 사용).
-    // 전략:
-    //   1) 기존 exe를 .old로 rename (삭제 X) — 실패 시 retry, 모두 실패면 그대로 종료.
-    //   2) 새 exe를 원본 자리로 move.
-    //   3) move 성공 시 .old 삭제(실패해도 무시), 새 런처 실행.
-    //   4) move 실패 시 .old를 원위치로 복구하고 종료.
-    let old_exe = format!("{}.old", current_exe.display());
-    let script = format!(
-        "@echo off\r\n\
-         setlocal EnableExtensions EnableDelayedExpansion\r\n\
-         rem System32 first: Git/Unix tools on PATH would shadow the Windows ones\r\n\
-         rem Delays use ping: timeout.exe exits at once without a console (DETACHED_PROCESS)\r\n\
-         set \"PATH=%SystemRoot%\\System32;%SystemRoot%;%PATH%\"\r\n\
-         rem GGO Launcher 자기 업데이트 헬퍼\r\n\
-         rem 1. 런처 종료될 시간 확보 (~2s)\r\n\
-         ping -n 3 127.0.0.1 >nul\r\n\
-         rem 2. 기존 exe → .old 로 rename (사용 중이면 retry)\r\n\
-         if exist \"{old}\" del /f /q \"{old}\" >nul 2>&1\r\n\
-         set RETRY=0\r\n\
-         :retry_rename\r\n\
-         if exist \"{cur}\" (\r\n\
-             ren \"{cur}\" \"{cur_name}.old\" >nul 2>&1\r\n\
-             if exist \"{cur}\" (\r\n\
-                 set /a RETRY+=1\r\n\
-                 if !RETRY! lss 10 (\r\n\
-                     ping -n 2 127.0.0.1 >nul\r\n\
-                     goto retry_rename\r\n\
-                 ) else (\r\n\
-                     echo [updater] 기존 exe rename 실패 - 수동 종료 후 재시도 필요\r\n\
-                     pause\r\n\
-                     exit /b 1\r\n\
-                 )\r\n\
-             )\r\n\
-         )\r\n\
-         rem 3. 새 exe move\r\n\
-         move /y \"{new}\" \"{cur}\" >nul\r\n\
-         if errorlevel 1 (\r\n\
-             echo [updater] 파일 교체 실패 - 이전 버전 복구\r\n\
-             if exist \"{old}\" ren \"{old}\" \"{cur_name}\" >nul 2>&1\r\n\
-             pause\r\n\
-             exit /b 1\r\n\
-         )\r\n\
-         rem 4. 이전 버전 삭제 (실패해도 무시)\r\n\
-         if exist \"{old}\" del /f /q \"{old}\" >nul 2>&1\r\n\
-         rem 5. 새 런처 실행\r\n\
-         rem    --after-update: waits for the old launcher's single-instance event\r\n\
-         start \"\" \"{cur}\" {after_update_arg}\r\n\
-         rem 6. 자기 삭제\r\n\
-         (goto) 2>nul & del \"%~f0\"\r\n",
-        cur = current_exe.display(),
-        cur_name = current_exe
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("GGOLauncher.exe"),
-        new = new_exe.display(),
-        old = old_exe,
-        after_update_arg = AFTER_UPDATE_ARG,
-    );
-    std::fs::write(bat, script).map_err(|e| format!("bat 생성 실패: {e}"))
-}
-
-#[cfg(windows)]
-fn spawn_bat(bat: &PathBuf) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-
-    std::process::Command::new("cmd")
-        .args(["/C", "call"])
-        .arg(bat.as_os_str())
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("updater.bat spawn 실패: {e}"))
-}
-
-#[cfg(not(windows))]
-fn spawn_bat(_bat: &PathBuf) -> Result<(), String> {
-    Err("self_updater는 Windows 전용".to_string())
+/// 지난 업데이트가 남긴 .old.exe / .new.exe 정리. 직전 런처가 아직 종료 중이면
+/// .old.exe가 잠겨 있을 수 있어 백그라운드에서 몇 번 다시 시도한다.
+pub fn cleanup_leftovers() {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return;
+    };
+    let leftovers = [sibling(&current_exe, "old"), sibling(&current_exe, "new")];
+    if !leftovers.iter().any(|p| p.exists()) {
+        return;
+    }
+    std::thread::spawn(move || {
+        for _ in 0..10 {
+            for p in &leftovers {
+                let _ = std::fs::remove_file(p);
+            }
+            if !leftovers.iter().any(|p| p.exists()) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
 }
 
 fn sha256_file(path: &std::path::Path) -> Result<String, String> {
@@ -277,4 +260,50 @@ async fn fetch_manifest() -> Result<LauncherManifest, String> {
         }
     }
     Err(format!("런처 manifest 가져오기 실패 (모든 소스): {errors}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ggol-selfupd-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn sibling_names_stay_next_to_exe() {
+        let exe = Path::new("C:/apps/GGOLauncher.exe");
+        assert_eq!(sibling(exe, "new"), Path::new("C:/apps/GGOLauncher.new.exe"));
+        assert_eq!(sibling(exe, "old"), Path::new("C:/apps/GGOLauncher.old.exe"));
+    }
+
+    #[test]
+    fn swap_replaces_current_and_keeps_old() {
+        let dir = scratch("swap");
+        let cur = dir.join("GGOLauncher.exe");
+        let (new, old) = (sibling(&cur, "new"), sibling(&cur, "old"));
+        std::fs::write(&cur, "v1").unwrap();
+        std::fs::write(&new, "v2").unwrap();
+        std::fs::write(&old, "stale").unwrap();
+        swap_in(&cur, &new, &old).unwrap();
+        assert_eq!(std::fs::read_to_string(&cur).unwrap(), "v2");
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "v1");
+        assert!(!new.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn swap_restores_current_when_new_is_missing() {
+        let dir = scratch("restore");
+        let cur = dir.join("GGOLauncher.exe");
+        let (new, old) = (sibling(&cur, "new"), sibling(&cur, "old"));
+        std::fs::write(&cur, "v1").unwrap();
+        assert!(swap_in(&cur, &new, &old).is_err());
+        assert_eq!(std::fs::read_to_string(&cur).unwrap(), "v1");
+        assert!(!old.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
