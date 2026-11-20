@@ -80,11 +80,19 @@ pub fn load() -> Result<Settings, String> {
     Ok(s)
 }
 
+const LEGACY_MARGO_ADDRESS: &str = "222.102.202.108";
+const MARGO_ADDRESS: &str = "margo.25942594.xyz";
+const MARGO_PORT: u16 = 2594;
+
 /// 구 데이터 → 신규 계정 리스트 구조로 자동 이전.
 /// - profile.server.username/password_encrypted 가 있고 accounts가 비어있으면 첫 Account로 이동.
 fn migrate(s: &mut Settings) {
     use crate::profile::{new_account_id, Account};
     for p in &mut s.profiles {
+        // 마고 서버가 IP에서 도메인으로 이전됨: 옛 마고 IP를 쓰던 프로필만 새 주소로 바꾼다.
+        if p.server.address.trim() == LEGACY_MARGO_ADDRESS && p.server.port == MARGO_PORT {
+            p.server.address = MARGO_ADDRESS.to_string();
+        }
         let has_legacy = !p.server.username.is_empty() || !p.server.password_encrypted.is_empty();
         if has_legacy && p.server.accounts.is_empty() {
             let id = new_account_id();
@@ -198,5 +206,27 @@ mod tests {
         migrate(&mut settings);
 
         assert_eq!(settings.active_profile_id.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn legacy_margo_ip_becomes_domain_only_for_margo_port() {
+        let mut old_margo = profile("a");
+        old_margo.server.address = "222.102.202.108".to_string();
+        old_margo.server.port = 2594;
+        let mut other_port = profile("b");
+        other_port.server.address = "222.102.202.108".to_string();
+        other_port.server.port = 2593;
+        let mut settings = Settings {
+            active_profile_id: None,
+            profiles: vec![old_margo, other_port, profile("c")],
+            plugins: Vec::new(),
+            ui: UiSettings::default(),
+        };
+
+        migrate(&mut settings);
+
+        assert_eq!(settings.profiles[0].server.address, "margo.25942594.xyz");
+        assert_eq!(settings.profiles[1].server.address, "222.102.202.108");
+        assert_eq!(settings.profiles[2].server.address, "localhost");
     }
 }

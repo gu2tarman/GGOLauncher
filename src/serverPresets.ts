@@ -10,7 +10,7 @@ export interface ServerPreset {
 
 /** 프로필 편집의 서버 선택 목록. 첫 항목이 새 프로필 기본값. */
 export const SERVER_PRESETS: ServerPreset[] = [
-  { id: "margo", label: "마고 (Margo)", address: "222.102.202.108", port: 2594, encryption: "auto" },
+  { id: "margo", label: "마고 (Margo)", address: "margo.25942594.xyz", port: 2594, encryption: "auto" },
 ];
 
 export const DEFAULT_SERVER_PRESET = SERVER_PRESETS[0];
